@@ -9,9 +9,9 @@ from urllib.parse import quote
 
 
 #Change the lines below to match your config
-server = 'http:/<STASH-IP>:9999/graphql'
-username=''
-password=''
+server = 'http<s>://<STASH-IP>:<PORT>/graphql'
+username='<username>'
+password='<password>'
 
 # Configuration options
 ignore_ssl_warnings=True # Set to true if your Stash uses SSL w/ a self-signed cert
