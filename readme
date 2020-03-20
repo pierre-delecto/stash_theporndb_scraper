@@ -4,4 +4,6 @@ Currently, the script supports setting titles, performers, tags, studios, detail
 
 Usage:  Modify the script to include the URL of your Stash endpoint.  Be sure to specify http or https.  Also include your username and password, if using.  Set any configuration parameters you'd like, which are explained in the script.  
 
-Then, run the script (python scrapeMetadataAPI.py).  If run without parameters, the script scrapes all Stash scenes.  If run with a parameter, that parameter controls the query passed to Stash when grabbing scenes.  So "python scrapeMetadataAPI.py test" scrapes all scenes matching the query "test," as controlled by Stash's query engine.
+Then, run the script (python scrapeMetadataAPI.py).  If run without parameters, the script scrapes all Stash scenes.  If run with a parameter, that parameter controls the query passed to Stash when grabbing scenes.  So "python scrapeMetadataAPI.py test" scrapes all scenes matching the query "test," as controlled by Stash's query engine. 
+
+Successfully scraped scenes are tagged with a custom tag, and excluded from future scans.
