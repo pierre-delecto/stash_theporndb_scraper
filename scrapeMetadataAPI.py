@@ -432,7 +432,7 @@ def createSceneUpdateFromSceneData(scene_data):  #Scene data returned from stash
     
 def createStashPerformerData(metadataapi_performer): #Creates stash-compliant data from raw data provided by metadataapi
     stash_performer = {}
-    stash_performer["name"] = metadataapi_performer["name"]
+    if keyIsSet(metadataapi_performer, ["parent", "name"]): stash_performer["name"] = metadataapi_performer["parent"]["name"]
     if keyIsSet(metadataapi_performer, ["parent", "extras", "birthday"]): stash_performer["birthdate"] = \
         metadataapi_performer["parent"]["extras"]["birthday"]
     if keyIsSet(metadataapi_performer, ["parent", "extras", "measurements"]): stash_performer["measurements"] = \
@@ -701,31 +701,35 @@ def updateSceneFromMetadataAPI(scene):
                 scraped_performer_ids = []
                 for scraped_performer in scraped_scene["performers"]:
                     performer_id = None
-                    stash_performer = my_stash.getPerformerByName(scraped_performer['name'])
-                    if stash_performer:
-                        performer_id = stash_performer["id"]
-                    elif add_performers and ((scraped_performer['name'].lower() in scene_data[
-                        "title"].lower()) or not only_add_female_performers or (
-                                                     keyIsSet(scraped_performer, ["parent", "extras", "gender"]) and
-                                                     scraped_performer["parent"]["extras"][
-                                                         "gender"] == 'Female')):  # Add performer if we meet relevant requirements
-                        print("Did not find " + scraped_performer['name'] + " in Stash.  Adding performer.")
+                    if not keyIsSet(scraped_performer, ['parent','name']): #No "parent" performer at ThePornDB, skip addition
+                        print(scraped_performer['parent']['name']+" is linked to a site, but not a general performer at ThePornDB.  Skipping addition.")
+                        break
+                    else:
+                        stash_performer = my_stash.getPerformerByName(scraped_performer['parent']['name'])
+                        if stash_performer:
+                            performer_id = stash_performer["id"]
+                        elif add_performers and ((scraped_performer['name'].lower() in scene_data[
+                            "title"].lower()) or not only_add_female_performers or (
+                                                         keyIsSet(scraped_performer, ["parent", "extras", "gender"]) and
+                                                         scraped_performer["parent"]["extras"][
+                                                             "gender"] == 'Female')):  # Add performer if we meet relevant requirements
+                            print("Did not find " + scraped_performer['parent']['name'] + " in Stash.  Adding performer.")
 
-                        performer_id = my_stash.addPerformer(createStashPerformerData(scraped_performer))
-                        performer_data = {}
+                            performer_id = my_stash.addPerformer(createStashPerformerData(scraped_performer))
+                            performer_data = {}
 
-                        if scrape_performers_freeones:
-                            performer_data = scrapePerformerFreeones(scraped_performer['name'])
-                            if not performer_data:
-                                performer_data = {}
+                            if scrape_performers_freeones:
+                                performer_data = scrapePerformerFreeones(scraped_performer['parent']['name'])
+                                if not performer_data:
+                                    performer_data = {}
 
-                        performer_data["id"] = performer_id
+                            performer_data["id"] = performer_id
 
-                        performer_data["image"] = getPerformerImageB64(scraped_performer['name'])
-                        my_stash.updatePerformer(performer_data)
+                            performer_data["image"] = getPerformerImageB64(scraped_performer['parent']['name'])
+                            my_stash.updatePerformer(performer_data)
 
-                    if performer_id != None:  # If we have a valid ID, add performer to Scene
-                        scraped_performer_ids.append(performer_id)
+                        if performer_id != None:  # If we have a valid ID, add performer to Scene
+                            scraped_performer_ids.append(performer_id)
                 scene_data["performer_ids"] = list(set(scene_data["performer_ids"] + scraped_performer_ids))                              
             # Set Title
             if set_title:
