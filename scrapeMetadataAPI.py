@@ -379,6 +379,22 @@ class stash_interface:
         else:
             raise Exception("Query failed to run by returning code of {}. {}".format(request.status_code, query)) 
 
+    def scrapePerformerFreeones(self, name):
+        query = """
+    {
+        scrapeFreeones(performer_name: \""""+name+"""\")
+        { url twitter instagram birthdate ethnicity country eye_color height measurements fake_tits career_length tattoos piercings aliases }
+
+    }
+    """
+        
+        request = requests.post(self.server, json={'query': query}, headers=self.headers, auth=(self.username, self.password), 
+                                verify= not self.ignore_ssl_warnings)
+        if request.status_code == 200:
+            return request.json()["data"]["scrapeFreeones"]
+        else:
+            raise Exception("Query failed to run by returning code of {}. {}".format(request.status_code, query))
+
     def getPerformerByName(self, name):
         for performer in self.performers:
             if performer['name'].lower() == name.lower():
@@ -405,6 +421,8 @@ class stash_interface:
             if str(tag['name'].lower().replace(' ', '').replace('-', ' ')) == current_tag:
                 return tag
         return None
+        
+
         
 #Scrape-specific functions        
 def createSceneUpdateFromSceneData(scene_data):  #Scene data returned from stash has a different format than what is accepted by the UpdateScene graphQL query.  This converts one format to another
@@ -489,21 +507,7 @@ def getJpegImage(image_url):
 
     return None    
 
-def scrapePerformerFreeones(name):
-    query = """
-{
-	scrapeFreeones(performer_name: \""""+name+"""\")
-    { url twitter instagram birthdate ethnicity country eye_color height measurements fake_tits career_length tattoos piercings aliases }
 
-}
-"""
-    
-    request = requests.post(server, json={'query': query}, headers=headers, auth=(username, password), 
-                            verify= not ignore_ssl_warnings)
-    if request.status_code == 200:
-        return request.json()["data"]["scrapeFreeones"]
-    else:
-        raise Exception("Query failed to run by returning code of {}. {}".format(request.status_code, query))
 
 def getBabepediaImage(name):
     url = "https://www.babepedia.com/pics/"+urllib.parse.quote(name)+".jpg"
@@ -597,9 +601,15 @@ def updateSceneFromMetadataAPI(scene):
         scene_data = createSceneUpdateFromSceneData(scene)  # Start with our current data as a template
         
         if parse_with_filename:
-            file_name = re.search(r'^\/(.+\/)*(.+)\.(.+)$', scene['path']).group(2)
+            
+            if re.search(r'^[A-Z]:\\', scene['path']):  #If we have Windows-like paths
+                file_name = re.search(r'^[A-Z]:\\(.+\\)*(.+)\.(.+)$', scene['path']).group(2)
+            else:  #Else assume Unix-like paths
+                file_name = re.search(r'^\/(.+\/)*(.+)\.(.+)$', scene['path']).group(2)
+            
             if clean_filename:
                 file_name = scrubFileName(file_name)
+            
             scrape_query = file_name
         else:
             scrape_query = scene_data['title']
@@ -647,7 +657,7 @@ def updateSceneFromMetadataAPI(scene):
                     scene_data["tag_ids"] = list(set(scene_data["tag_ids"] + tag_ids_to_add))
                     my_stash.updateSceneData(scene_data)
                 return
-            
+
             scraped_scene = scraped_data[0]
             # If we got new data, update our current data with the new
             if ambiguous_tag and ambiguous_tag_id in scene_data["tag_ids"]: scene_data["tag_ids"].remove(ambiguous_tag_id) #Remove ambiguous tag if we disambiguated
@@ -675,7 +685,7 @@ def updateSceneFromMetadataAPI(scene):
 
                 if studio_id != None:  # If we have a valid ID, add studio to Scene
                     scene_data["studio_id"] = studio_id
-
+                    
             # Add Tags to the scene
             tags_to_add = []
             if scrape_tag: tags_to_add.append({'tag':scrape_tag})
@@ -701,36 +711,46 @@ def updateSceneFromMetadataAPI(scene):
                 scraped_performer_ids = []
                 for scraped_performer in scraped_scene["performers"]:
                     performer_id = None
-                    if not keyIsSet(scraped_performer, ['parent','name']): #No "parent" performer at ThePornDB, skip addition
-                        print(scraped_performer['parent']['name']+" is linked to a site, but not a general performer at ThePornDB.  Skipping addition.")
-                        break
+                    performer_name = ""
+                    unique_performer_metadataapi = False
+                    if keyIsSet(scraped_performer, ['parent','name']): #"Parent" performer found at ThePornDB
+                        performer_name = scraped_performer['parent']['name']
+                        unique_performer_metadataapi = True
                     else:
-                        stash_performer = my_stash.getPerformerByName(scraped_performer['parent']['name'])
-                        if stash_performer:
-                            performer_id = stash_performer["id"]
-                        elif add_performers and ((scraped_performer['name'].lower() in scene_data[
-                            "title"].lower()) or not only_add_female_performers or (
-                                                         keyIsSet(scraped_performer, ["parent", "extras", "gender"]) and
-                                                         scraped_performer["parent"]["extras"][
-                                                             "gender"] == 'Female')):  # Add performer if we meet relevant requirements
-                            print("Did not find " + scraped_performer['parent']['name'] + " in Stash.  Adding performer.")
+                        performer_name = scraped_performer['name']
+                        
+                    stash_performer = my_stash.getPerformerByName(performer_name)
+                    if stash_performer:
+                        performer_id = stash_performer["id"]
+                    # Add performer if we meet relevant requirements
+                    elif not unique_performer_metadataapi:
+                        print(performer_name+" was not found in Stash. However, "+performer_name+" is not linked to a known (multi-site) performer at ThePornDB.  Skipping addition.")
+                    elif (
+                        add_performers and (  
+                            (performer_name.lower() in scene_data["title"].lower()) or 
+                            not only_add_female_performers or 
+                            (keyIsSet(scraped_performer, ["parent", "extras", "gender"]) and scraped_performer["parent"]["extras"]["gender"] == 'Female')
+                            )
+                        ):  
+                        print("Did not find " + performer_name + " in Stash.  Adding performer.")
 
-                            performer_id = my_stash.addPerformer(createStashPerformerData(scraped_performer))
-                            performer_data = {}
+                        performer_id = my_stash.addPerformer(createStashPerformerData(scraped_performer))
+                        performer_data = {}
 
-                            if scrape_performers_freeones:
-                                performer_data = scrapePerformerFreeones(scraped_performer['parent']['name'])
-                                if not performer_data:
-                                    performer_data = {}
+                        if scrape_performers_freeones:
+                            performer_data = my_stash.scrapePerformerFreeones(performer_name)
+                            if not performer_data:
+                                performer_data = {}
 
-                            performer_data["id"] = performer_id
+                        performer_data["id"] = performer_id
 
-                            performer_data["image"] = getPerformerImageB64(scraped_performer['parent']['name'])
-                            my_stash.updatePerformer(performer_data)
+                        performer_data["image"] = getPerformerImageB64(performer_name)
+                        my_stash.updatePerformer(performer_data)
 
-                        if performer_id != None:  # If we have a valid ID, add performer to Scene
-                            scraped_performer_ids.append(performer_id)
+                    if performer_id != None:  # If we have a valid ID, add performer to Scene
+                        scraped_performer_ids.append(performer_id)
                 scene_data["performer_ids"] = list(set(scene_data["performer_ids"] + scraped_performer_ids))                              
+
             # Set Title
             if set_title:
                 performer_names = [] 
@@ -795,11 +815,11 @@ def main():
         
         query=""
         if len(sys.argv) > 1:
-            query = sys.argv[1]
+            query = "\""+sys.argv[1]+"\""
         
         findScenes_params = {}
         findScenes_params['filter'] = {'q':query, 'per_page':100, 'sort':"created_at", 'direction':'DESC'}
-        
+
         if disambiguate_only:  #If only disambiguating scenes
             findScenes_params['scene_filter'] = {'tags': { 'modifier':'INCLUDES', 'value': [ambiguous_tag_id]}}
         elif not rescrape_scenes: #If only scraping unscraped scenes
