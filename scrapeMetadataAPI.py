@@ -275,12 +275,9 @@ class stash_interface:
         """
 
         variables = {'input': studio_data}
-
-        request = requests.post(self.server, json={'query': query, 'variables': variables}, headers=self.headers,
-                                auth=(self.username, self.password), verify=not self.ignore_ssl_warnings)
         try:
             result = self.callGraphQL(query, variables)
-            self.populatePerformers()
+            self.populateStudios()
             return result["data"]["studioCreate"]["id"]
         except Exception as e:
             print("Error in adding studio:")
