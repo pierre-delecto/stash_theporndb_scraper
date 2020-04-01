@@ -584,6 +584,31 @@ def manuallyDisambiguateMetadataAPIResults(scrape_query, scraped_data):
         new_data.append(scraped_data[selection-1])
         return new_data
 
+def areAliases(first_performer, second_performer):
+    global my_stash
+    first_performer_aliases = [first_performer]
+    second_performer_aliases = [second_performer]
+    ##build aliases of both first/second performer
+    #First performer
+    result = my_stash.getPerformerByName(first_performer)
+    if result and keyIsSet(result, "aliases"):
+        first_performer_aliases =  list(set(first_performer_aliases + result["aliases"]))
+    result = my_stash.scrapePerformerFreeones(first_performer)
+    if result and keyIsSet(result, "aliases"):
+        first_performer_aliases =  list(set(first_performer_aliases + result["aliases"]))
+    #Second Performer
+    result = my_stash.getPerformerByName(second_performer)
+    if result and keyIsSet(result, "aliases"):
+        second_performer_aliases =  list(set(second_performer_aliases + result["aliases"]))
+    result = my_stash.scrapePerformerFreeones(second_performer)
+    if result and keyIsSet(result, "aliases"):
+        second_performer_aliases =  list(set(second_performer_aliases + result["aliases"]))        
+    #check if one is an alias of another, but don't compare aliases
+    if first_performer in second_performer_aliases or second_performer in first_performer_aliases:
+        return True
+    return False
+    
+
 def updateSceneFromMetadataAPI(scene):
     try:
         scrape_query = ""
@@ -714,16 +739,15 @@ def updateSceneFromMetadataAPI(scene):
                     performer_name = ""
                     performer_aliases = []
                     unique_performer_metadataapi = False
-                    if keyIsSet(scraped_performer, ['parent','name']): #"Parent" performer found at ThePornDB
-                        performer_name = scraped_performer['parent']['name']
-                        unique_performer_metadataapi = True
-                    else:
-                        performer_name = scraped_performer['name']
-                    if keyIsSet(scraped_performer, ['parent', 'aliases']):
-                          performer_aliases = scraped_performer['parent']['aliases']
                     
-                    stash_performer = my_stash.getPerformerByName(performer_name, performer_aliases)
-                    
+                    performer_name = scraped_performer['name'] 
+                    stash_performer = my_stash.getPerformerByName(performer_name)
+                    if not stash_performer: #If site name matches someone in Stash, proceed.  Otherwise...
+                        if keyIsSet(scraped_performer, ['parent','name']) and areAliases(scraped_performer['name'], scraped_performer['parent']['name'] ): #"Parent" performer found at ThePornDB, and Parent performer seems to be a valid alias to site performer
+                            performer_name = scraped_performer['parent']['name']
+                            unique_performer_metadataapi = True
+                            stash_performer = my_stash.getPerformerByName(performer_name, performer_aliases) #Adopt the parent name only if we can verify it's an alias of the site name.  If so, either tag w/ existing performer or add new performer when requirements are met.
+                       
                     if stash_performer:  #If performer already exists
                         performer_id = stash_performer["id"]
                     # Add ambigous performer tag if we meet relevant requirements
