@@ -585,6 +585,9 @@ def manuallyDisambiguateMetadataAPIResults(scrape_query, scraped_data):
         return new_data
 
 def areAliases(first_performer, second_performer):
+    if first_performer == second_performer: #No need to conduct checks if they're the same
+        return True
+    
     global my_stash
     first_performer_aliases = [first_performer]
     second_performer_aliases = [second_performer]
@@ -613,6 +616,7 @@ def updateSceneFromMetadataAPI(scene):
     try:
         scrape_query = ""
         tag_ids_to_add = []
+        performer_names = []
         if ambiguous_tag: ambiguous_tag_id = my_stash.getTagByName(ambiguous_tag)['id']
         
         scene_data = createSceneUpdateFromSceneData(scene)  # Start with our current data as a template
@@ -714,7 +718,6 @@ def updateSceneFromMetadataAPI(scene):
             
             for tag_dict in tags_to_add:
                 tag_id = None
-                
                 tag_name = tag_dict['tag'].replace('-', ' ').replace('(', '').replace(')', '').strip().title()
                 if add_tags:
                     stash_tag = my_stash.getTagByName(tag_name, add_tag_if_missing = True)["id"]
@@ -728,7 +731,6 @@ def updateSceneFromMetadataAPI(scene):
                 if tag_id != None:  # If we have a valid ID, add tag to Scene
                     tag_ids_to_add.append(tag_id)
             
-
             scene_data["tag_ids"] = list(set(scene_data["tag_ids"] + tag_ids_to_add))
 
             # Add performers to scene
@@ -754,13 +756,15 @@ def updateSceneFromMetadataAPI(scene):
                     elif  not unique_performer_metadataapi: 
                         if  tag_ambiguous_performers and (
                             not only_add_female_performers or (
-                                keyIsSet(scraped_performer, ["parent", "extras", "gender"]) and 
-                                scraped_performer["parent"]["extras"]["gender"] == 'Female'
+                                keyIsSet(scraped_performer, ["extra", "gender"]) and 
+                                scraped_performer["extra"]["gender"] != 'Male'
                                 )
-                            ):
+                            ): #Note the relaxed gender requirement for ambiguous performers
                             print(performer_name+" was not found in Stash. However, "+performer_name+" is not linked to a known (multi-site) performer at ThePornDB.  Skipping addition and tagging scene.")
                             tag_id = my_stash.getTagByName("ThePornDB Ambiguous Performer: "+performer_name, True)["id"]
                             scene_data["tag_ids"].append(tag_id)
+                            if performer_name.lower() in scrape_query.lower():  #If the ambiguous performer is in the file name, put them in the title too.
+                                performer_names.append(performer_name)
                     # Add performer if we meet relevant requirements
                     elif add_performers:
                         if  (
@@ -787,8 +791,7 @@ def updateSceneFromMetadataAPI(scene):
                 scene_data["performer_ids"] = list(set(scene_data["performer_ids"] + scraped_performer_ids))                              
 
             # Set Title
-            if set_title:
-                performer_names = [] 
+            if set_title: 
                 if keyIsSet(scene_data, "performer_ids"):
                     for performer_id in scene_data["performer_ids"]:
                         for performer in my_stash.performers:
@@ -959,7 +962,7 @@ def main():
             query = "\""+sys.argv[1]+"\""
         
         findScenes_params = {}
-        findScenes_params['filter'] = {'q':query, 'per_page':100, 'sort':"created_at", 'direction':'ASC'}
+        findScenes_params['filter'] = {'q':query, 'per_page':100, 'sort':"created_at", 'direction':'DESC'}
 
         if disambiguate_only:  #If only disambiguating scenes
             findScenes_params['scene_filter'] = {'tags': { 'modifier':'INCLUDES', 'value': [ambiguous_tag_id]}}
