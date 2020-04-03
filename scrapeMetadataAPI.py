@@ -232,7 +232,7 @@ class stash_interface:
 
         variables = {'input': scene_data}
         result = self.callGraphQL(query, variables)
-       
+
         if "errors" in result.keys() and len(result["errors"]) > 0:
             raise Exception ("GraphQL Error when running query. Errors: {}".format(result["errors"])) 
         
@@ -457,6 +457,17 @@ def createStashPerformerData(metadataapi_performer): #Creates stash-compliant da
         stash_performer["piercings"] = metadataapi_performer["parent"]["extras"]["piercings"]
     if keyIsSet(metadataapi_performer, ["parent", "aliases"]) and len(metadataapi_performer["parent"]["aliases"])>1: 
         stash_performer["aliases"] = metadataapi_performer["parent"]["aliases"]
+    if keyIsSet(metadataapi_performer, ["parent", "extras", "gender"]):
+        if metadataapi_performer["parent"]["extras"]["gender"] == "Male":
+            stash_performer["gender"] = 'MALE'
+        if metadataapi_performer["parent"]["extras"]["gender"] == "Female":
+            stash_performer["gender"] = 'FEMALE'            
+        if metadataapi_performer["parent"]["extras"]["gender"] == "Transgender Male":
+            stash_performer["gender"] = 'TRANSGENDER_MALE'
+        if metadataapi_performer["parent"]["extras"]["gender"] == "Transgender Female":
+            stash_performer["gender"] = 'TRANSGENDER_FEMALE'
+        if metadataapi_performer["parent"]["extras"]["gender"] == "Intersex":
+            stash_performer["gender"] = 'INTERSEX'
     return stash_performer
 
 def createStashStudioData(metadataapi_studio):  # Creates stash-compliant data from raw data provided by metadataapi
@@ -467,16 +478,11 @@ def createStashStudioData(metadataapi_studio):  # Creates stash-compliant data f
         stash_studio["name"] = metadataapi_studio["name"]
     stash_studio["url"] = metadataapi_studio["url"]
     if metadataapi_studio["logo"] is not None and "default.png" not in metadataapi_studio["logo"]:
-        stash_studio["image"] = get_base64_image(metadataapi_studio["logo"])
+        image = requests.get(metadataapi_studio["logo"]).content
+        image_b64 = base64.b64encode(image)
+        stash_studio["image"] = image_b64.decode(ENCODING)
 
     return stash_studio
-
-def get_base64_image(image_url):
-    # Download
-    image = requests.get(image_url).content
-    image_b64 = base64.b64encode(image)
-    if image_b64:
-        return image_b64.decode(ENCODING)
 
 def getJpegImage(image_url):
     try:
@@ -610,32 +616,42 @@ def areAliases(first_performer, second_performer):
     if first_performer in second_performer_aliases or second_performer in first_performer_aliases:
         return True
     return False
-    
+
+def getQuery(scene):
+    if parse_with_filename:
+        try:
+            if re.search(r'^[A-Z]:\\', scene['path']):  #If we have Windows-like paths
+                file_name = re.search(r'^[A-Z]:\\(.+\\)*(.+)\.(.+)$', scene['path']).group(2)
+            else:  #Else assume Unix-like paths
+                parse_result = re.search(r'^\/((.+)\/)*(.+)\.(.+)$', scene['path'])
+                file_name = parse_result.group(3)
+                dirs = parse_result.group(2).split("/")
+        except Exception:
+            print("Error when parsing scene path: "+scene['path'])
+            return
+        if clean_filename:
+            file_name = scrubFileName(file_name)
+        
+        scrape_query = file_name
+        #ADD DIRS TO QUERY
+        for x in range(dirs_in_query):
+            scrape_query = dirs[-1-x] +" "+scrape_query
+
+    else:
+        scrape_query = scene_data['title']
+    return scrape_query
 
 def updateSceneFromMetadataAPI(scene):
     try:
         scrape_query = ""
         tag_ids_to_add = []
+        tags_to_add = []
         performer_names = []
+        
         if ambiguous_tag: ambiguous_tag_id = my_stash.getTagByName(ambiguous_tag)['id']
         
-        scene_data = createSceneUpdateFromSceneData(scene)  # Start with our current data as a template
-        
-        if parse_with_filename:
-            try:
-                if re.search(r'^[A-Z]:\\', scene['path']):  #If we have Windows-like paths
-                    file_name = re.search(r'^[A-Z]:\\(.+\\)*(.+)\.(.+)$', scene['path']).group(2)
-                else:  #Else assume Unix-like paths
-                    file_name = re.search(r'^\/(.+\/)*(.+)\.(.+)$', scene['path']).group(2)
-            except Exception:
-                print("Error when parsing filename: "+scene['path'])
-                return
-            if clean_filename:
-                file_name = scrubFileName(file_name)
-            
-            scrape_query = file_name
-        else:
-            scrape_query = scene_data['title']
+        scrape_query = getQuery(scene)
+        scene_data = createSceneUpdateFromSceneData(scene)  # Start with our current data as a template 
 
         print("Grabbing Data For: " + scrape_query)
         scraped_data = scrapeMetadataAPI(scrape_query)
@@ -710,28 +726,9 @@ def updateSceneFromMetadataAPI(scene):
                     scene_data["studio_id"] = studio_id
                     
             # Add Tags to the scene
-            tags_to_add = []
             if scrape_tag: tags_to_add.append({'tag':scrape_tag})
             if set_tags and keyIsSet(scraped_scene, "tags"):
                 tags_to_add = tags_to_add + scraped_scene["tags"]
-
-            
-            for tag_dict in tags_to_add:
-                tag_id = None
-                tag_name = tag_dict['tag'].replace('-', ' ').replace('(', '').replace(')', '').strip().title()
-                if add_tags:
-                    stash_tag = my_stash.getTagByName(tag_name, add_tag_if_missing = True)["id"]
-                else:
-                    stash_tag = my_stash.getTagByName(tag_name, add_tag_if_missing = False)
-                    if stash_tag:
-                        tag_id = stash_tag["id"] 
-                    else:
-                        tag_id = None
-                
-                if tag_id != None:  # If we have a valid ID, add tag to Scene
-                    tag_ids_to_add.append(tag_id)
-            
-            scene_data["tag_ids"] = list(set(scene_data["tag_ids"] + tag_ids_to_add))
 
             # Add performers to scene
             if set_performers and keyIsSet(scraped_scene, "performers"):
@@ -811,6 +808,22 @@ def updateSceneFromMetadataAPI(scene):
                 new_title = new_title + " " + scraped_scene["title"]
                 scene_data["title"] = new_title
 
+            #Set tag_ids for tags_to_add           
+            for tag_dict in tags_to_add:
+                tag_id = None
+                tag_name = tag_dict['tag'].replace('-', ' ').replace('(', '').replace(')', '').strip().title()
+                if add_tags:
+                    stash_tag = my_stash.getTagByName(tag_name, add_tag_if_missing = True)["id"]
+                else:
+                    stash_tag = my_stash.getTagByName(tag_name, add_tag_if_missing = False)
+                    if stash_tag:
+                        tag_id = stash_tag["id"] 
+                    else:
+                        tag_id = None
+                if tag_id != None:  # If we have a valid ID, add tag to Scene
+                    tag_ids_to_add.append(tag_id)
+            scene_data["tag_ids"] = list(set(scene_data["tag_ids"] + tag_ids_to_add))
+
             my_stash.updateSceneData(scene_data)
             print("Success")
         else:
@@ -860,6 +873,7 @@ tag_ambiguous_performers = True  # If True, will tag ambiguous performers (perfo
 
 #Other config options
 parse_with_filename = True # If true, will query ThePornDB based on file name, rather than title, studio, and date
+dirs_in_query = 0
 only_add_female_performers = True  #If true, only female performers are added (note, exception is made if performer name is already in title and name is found on ThePornDB)
 scrape_performers_freeones = False #If true, will try to scrape newly added performers with the freeones scraper
 get_images_babepedia = False #If true, will try to grab an image from babepedia before the one from metadataapi
@@ -930,6 +944,7 @@ tag_ambiguous_performers = True  # If True, will tag ambiguous performers (perfo
 
 #Other config options
 parse_with_filename = True # If true, will query ThePornDB based on file name, rather than title, studio, and date
+dirs_in_query = 0
 only_add_female_performers = True  #If true, only female performers are added (note, exception is made if performer name is already in title and name is found on ThePornDB)
 scrape_performers_freeones = False #If true, will try to scrape newly added performers with the freeones scraper
 get_images_babepedia = False #If true, will try to grab an image from babepedia before the one from metadataapi
