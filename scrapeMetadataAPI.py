@@ -608,7 +608,6 @@ def updateSceneFromMetadataAPI(scene):
         else:
             scrape_query = scene_data['title']
 
-        print("Grabbing Data For: " + scrape_query)
         scraped_data = scrapeMetadataAPI(scrape_query)
 
         if scraped_data:  
@@ -633,6 +632,8 @@ def updateSceneFromMetadataAPI(scene):
                 for scene in scene_iter:
                     if scene['title'] == scraped_data[0]['title']:
                         scraped_data.remove(scene)
+            
+            print("Grabbing Data For: " + scrape_query)
             
             if len(scraped_data) > 1 and manual_disambiguate: # Manual disambiguate
                 scraped_data = manuallyDisambiguateMetadataAPIResults(scrape_query, scraped_data)
