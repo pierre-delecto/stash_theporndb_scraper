@@ -6,6 +6,7 @@ import urllib
 import sys
 import base64
 import math
+import logging
 from io import BytesIO
 from urllib.parse import quote
 from PIL import Image
@@ -217,8 +218,8 @@ class stash_interface:
                 stashScenes = stashScenes+self.findScenes(**variables)
 
         except:
-            print("Unexpected error getting stash scene:", sys.exc_info()[0]) 
-
+            logging.error("Unexpected error getting stash scene:", exc_info=True)
+            
         return stashScenes  
         
     def updateSceneData(self, scene_data):
@@ -257,9 +258,9 @@ class stash_interface:
             return result["data"]["performerCreate"]["id"]
 
         except:
-            print("Error in adding performer:")
-            print(variables)
-            print(result)
+            logging.error("Error in adding performer", exc_info=True)
+            logging.error(variables)
+            logging.error(result)
 
     def getPerformerImage(self, url):
         return base64.b64encode(requests.get(url, auth=requests.auth.HTTPBasicAuth(username, password)).content, 
@@ -280,8 +281,8 @@ class stash_interface:
             self.populateStudios()
             return result["data"]["studioCreate"]["id"]
         except Exception as e:
-            print("Error in adding studio:")
-            print(variables)
+            logging.error("Error in adding studio:", exc_info=True)
+            logging.error(variables)
 
     def addTag(self, tag_data):
         query = """
@@ -298,9 +299,8 @@ class stash_interface:
             self.populateTags()
             return result["data"]["tagCreate"]["id"]
         except Exception as e:
-            print(e)
-            print("Error in adding tags:")
-            print(variables)
+            logging.error("Error in adding tags", exc_info=True)
+            logging.error(variables)
     
     def deleteTagByName(self, name):
         tag_data = {}
@@ -332,11 +332,9 @@ class stash_interface:
             self.populateTags()
             return result["data"]["tagDestroy"]
         except Exception as e:
-            print(e)
-            print("Error in deleting tag:")
-            print(variables)
+            logging.error("Error in deleting tag", exc_info=True)
+            logging.error(variables)
     
-
     def updatePerformer(self, performer_data):
         update_data = performer_data
         if update_data.get('aliases', None):
@@ -404,9 +402,11 @@ class stash_interface:
         return None
     
     def getTagByName(self, name, add_tag_if_missing = False):
+        logging.debug("Getting tag id for tag \'"+name+"\'.")
         search_name = name.lower().replace('-', ' ').replace('(', '').replace(')', '').strip().replace(' ', '')
         for tag in self.tags:
             if search_name == tag['name'].lower().replace('-', ' ').replace('(', '').replace(')', '').strip().replace(' ', ''):
+                logging.debug("Found the tag.  ID is "+tag['id'])
                 return tag
         
         # Add the Tag to Stash
@@ -636,9 +636,8 @@ def getQuery(scene):
         #ADD DIRS TO QUERY
         for x in range(dirs_in_query):
             scrape_query = dirs[-1-x] +" "+scrape_query
-
     else:
-        scrape_query = scene_data['title']
+        scrape_query = scene['title']
     return scrape_query
 
 def updateSceneFromMetadataAPI(scene):
@@ -648,8 +647,6 @@ def updateSceneFromMetadataAPI(scene):
         tags_to_add = []
         performer_names = []
         
-        if ambiguous_tag: ambiguous_tag_id = my_stash.getTagByName(ambiguous_tag)['id']
-        
         scrape_query = getQuery(scene)
         scene_data = createSceneUpdateFromSceneData(scene)  # Start with our current data as a template 
 
@@ -657,6 +654,7 @@ def updateSceneFromMetadataAPI(scene):
         scraped_data = scrapeMetadataAPI(scrape_query)
 
         if scraped_data:  
+            if ambiguous_tag: ambiguous_tag_id = my_stash.getTagByName(ambiguous_tag)['id']
             if not parse_with_filename:
                 if len(scraped_data)>1:
                     #Try to add studio
@@ -813,24 +811,28 @@ def updateSceneFromMetadataAPI(scene):
                 tag_id = None
                 tag_name = tag_dict['tag'].replace('-', ' ').replace('(', '').replace(')', '').strip().title()
                 if add_tags:
-                    stash_tag = my_stash.getTagByName(tag_name, add_tag_if_missing = True)["id"]
+                    tag_id = my_stash.getTagByName(tag_name, add_tag_if_missing = True)["id"]
                 else:
                     stash_tag = my_stash.getTagByName(tag_name, add_tag_if_missing = False)
                     if stash_tag:
                         tag_id = stash_tag["id"] 
                     else:
                         tag_id = None
-                if tag_id != None:  # If we have a valid ID, add tag to Scene
+                if tag_id:  # If we have a valid ID, add tag to Scene
                     tag_ids_to_add.append(tag_id)
+                else:
+                    logging.debug("Tried to add tag \'"+tag_dict['tag']+"\' but failed to find ID in Stash.")
             scene_data["tag_ids"] = list(set(scene_data["tag_ids"] + tag_ids_to_add))
+            
+            logging.debug("Now updating scene with the following data:")
+            logging.debug(scene_data)
 
             my_stash.updateSceneData(scene_data)
             print("Success")
         else:
             print("No data found for: [{}]".format(scrape_query))
     except Exception as e:
-        print("Exception encountered when scraping '"+scrape_query+"'. Exception: "+str(e))
-        input("Pause")
+        logging.error("Exception encountered when scraping '"+scrape_query, exc_info=True)
 
 #Globals
 metadataapi_error_count = 0
@@ -873,7 +875,7 @@ tag_ambiguous_performers = True  # If True, will tag ambiguous performers (perfo
 
 #Other config options
 parse_with_filename = True # If true, will query ThePornDB based on file name, rather than title, studio, and date
-dirs_in_query = 0
+dirs_in_query = 0 # The number of directories up the path to be included in the query for a filename parse query.  For example, if the file  is at \performer\mysite\video.mp4 and dirs_in_query is 1, query would be "mysite video."  If set to two, query would be "performer mysite video", etc.
 only_add_female_performers = True  #If true, only female performers are added (note, exception is made if performer name is already in title and name is found on ThePornDB)
 scrape_performers_freeones = False #If true, will try to scrape newly added performers with the freeones scraper
 get_images_babepedia = False #If true, will try to grab an image from babepedia before the one from metadataapi
@@ -889,12 +891,12 @@ def loadConfig():
             globals()[key]=value
         return True
     except ImportError:
-        print("No configuration found.  Double check your configuration.py file exists.")
+        logging.error("No configuration found.  Double check your configuration.py file exists.")
         create_config = input("Create configuruation.py? (yes/no):")
         if create_config == 'y' or create_config == 'Y' or create_config =='Yes' or create_config =='yes':
             createConfig()
         else:
-            print("No configuration found.  Exiting.")
+            logging.error("No configuration found.  Exiting.")
             sys.exit()
         
 def createConfig():        
@@ -944,7 +946,7 @@ tag_ambiguous_performers = True  # If True, will tag ambiguous performers (perfo
 
 #Other config options
 parse_with_filename = True # If true, will query ThePornDB based on file name, rather than title, studio, and date
-dirs_in_query = 0
+dirs_in_query = 0 # The number of directories up the path to be included in the query for a filename parse query.  For example, if the file  is at \performer\mysite\video.mp4 and dirs_in_query is 1, query would be "mysite video."  If set to two, query would be "performer mysite video", etc.
 only_add_female_performers = True  #If true, only female performers are added (note, exception is made if performer name is already in title and name is found on ThePornDB)
 scrape_performers_freeones = False #If true, will try to scrape newly added performers with the freeones scraper
 get_images_babepedia = False #If true, will try to grab an image from babepedia before the one from metadataapi
@@ -957,6 +959,7 @@ ignore_ssl_warnings=True # Set to true if your Stash uses SSL w/ a self-signed c
     sys.exit()
 
 def main():
+    logging.basicConfig(level=logging.DEBUG)
     try:
         global my_stash
         metadataapi_error_count = 0
@@ -992,8 +995,7 @@ def main():
         print("Success! Finished.")
 
     except Exception as e:
-        print(e)
-        print("Something went wrong.  This probably means your configuration.py is invalid somehow.  If all else fails, delete or rename your configuration.py and the script will try to create a new one.")
-        
+        logging.error("Something went wrong.  This probably means your configuration.py is invalid somehow.  If all else fails, delete or rename your configuration.py and the script will try to create a new one.", exc_info=True)
+
 if __name__ == "__main__":
     main()
