@@ -693,7 +693,7 @@ def updateSceneFromMetadataAPI(scene):
                 
                 tag_name = tag_dict['tag'].replace('-', ' ').replace('(', '').replace(')', '').strip().title()
                 if add_tags:
-                    stash_tag = my_stash.getTagByName(tag_name, add_tag_if_missing = True)["id"]
+                    tag_id = my_stash.getTagByName(tag_name, add_tag_if_missing = True)["id"]
                 else:
                     stash_tag = my_stash.getTagByName(tag_name, add_tag_if_missing = False)
                     if stash_tag:
