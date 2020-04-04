@@ -788,6 +788,7 @@ def updateSceneFromMetadataAPI(scene):
             my_stash.updateSceneData(scene_data)
             print("Success")
         else:
+            print("Grabbing Data For: " + scrape_query)
             print("No data found for: [{}]".format(scrape_query))
     except Exception as e:
         print("Exception encountered when scraping '"+scrape_query+"'. Exception: "+str(e))
