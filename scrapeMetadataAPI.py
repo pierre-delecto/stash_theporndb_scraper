@@ -550,9 +550,12 @@ def getPerformerImageB64(name):  #Searches Babepedia and MetadataAPI for a perfo
     except Exception as e:
         logging.error("Error Getting Performer Image", exc_info=True)
 
-def scrapeMetadataAPI(query):  # Scrapes MetadataAPI based on query.  Returns an array of scenes as results, or None
+def sceneQuery(query, parse_function = True):  # Scrapes MetadataAPI based on query.  Returns an array of scenes as results, or None
     global metadataapi_error_count
-    url = "https://metadataapi.net/api/scenes?parse="+urllib.parse.quote(query)    
+    if parse_function:
+        url = "https://metadataapi.net/api/scenes?parse="+urllib.parse.quote(query)    
+    else:
+        url = "https://metadataapi.net/api/scenes?q="+urllib.parse.quote(query)
     try:
         result = requests.get(url).json()["data"]
         metadataapi_error_count = 0
@@ -643,25 +646,27 @@ def getQuery(scene):
 def scrapeScene(scene):
     global my_stash
     try:
+        scene_data = createSceneUpdateFromSceneData(scene)  # Start with our current data as a template
         scrape_query = ""
-        
-        scene_data = createSceneUpdateFromSceneData(scene)  # Start with our current data as a template 
         scrape_query = getQuery(scene)
-        scraped_data = scrapeMetadataAPI(scrape_query)
+        scraped_data = sceneQuery(scrape_query)
+
+        if not scraped_data:
+            scraped_data = sceneQuery(scrape_query, False)
 
         if len(scraped_data)>1 and not parse_with_filename: 
             #Try to add studio
             if keyIsSet(scene, "studio"):
                 scrape_query = scrape_query + " " + scene['studio']['name']
-                new_data = scrapeMetadataAPI(scrape_query)
+                new_data = sceneQuery(scrape_query)
                 if new_data: scraped_data = new_data
             
-            if len(scraped_data)>1:    
-                #Try to and date
-                if keyIsSet(scene_data, "date"):
-                    scrape_query = scrape_query + " " + scene_data['date']
-                    new_data = scrapeMetadataAPI(scrape_query)
-                    if new_data: scraped_data = new_data
+        if len(scraped_data)>1 and not parse_with_filename:    
+            #Try to and date
+            if keyIsSet(scene_data, "date"):
+                scrape_query = scrape_query + " " + scene_data['date']
+                new_data = sceneQuery(scrape_query)
+                if new_data: scraped_data = new_data
             
         if len(scraped_data) > 1:  # Fix a bug where multiple ThePornDB results are the same scene
             scene_iter = iter(scraped_data)
@@ -669,6 +674,8 @@ def scrapeScene(scene):
             for scene in scene_iter:
                 if scene['title'] == scraped_data[0]['title']:
                     scraped_data.remove(scene)
+        
+        print("Grabbing Data For: " + scrape_query)
 
         if len(scraped_data) > 1 and manual_disambiguate: # Manual disambiguate
             scraped_data = manuallyDisambiguateMetadataAPIResults(scrape_query, scraped_data)
@@ -679,15 +686,14 @@ def scrapeScene(scene):
             new_data = []
             new_data.append(scraped_data[0])
             scraped_data = new_data
-        
+    
         if len(scraped_data) > 1:  # Handling of ambiguous scenes
             print("Ambiguous data found for: [{}], skipping".format(scrape_query))
             if ambiguous_tag:    
                 scene_data["tag_ids"].append(my_stash.getTagByName(ambiguous_tag)['id'])
                 my_stash.updateSceneData(scene_data)
             return
-        
-        print("Grabbing Data For: " + scrape_query)
+
         if scraped_data:
             scraped_scene = scraped_data[0]
             # If we got new data, update our current data with the new
@@ -701,9 +707,9 @@ def scrapeScene(scene):
 def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
     tag_ids_to_add = []
     tags_to_add = []
-    performer_names = []    
+    performer_names = []
     try:
-        ambiguous_tag_id = my_stash.getTagByName(ambiguous_tag)['id']
+        if ambiguous_tag: ambiguous_tag_id = my_stash.getTagByName(ambiguous_tag)['id']
         if ambiguous_tag and ambiguous_tag_id in scene_data["tag_ids"]: scene_data["tag_ids"].remove(ambiguous_tag_id) #Remove ambiguous tag if we disambiguated
         
         if set_details: scene_data["details"] = scraped_scene["description"] #Add details
@@ -726,7 +732,6 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
                 # Add the Studio to Stash
                 print("Did not find " + scraped_studio['name'] + " in Stash.  Adding Studio.")
                 studio_id = my_stash.addStudio((createStashStudioData(scraped_studio)))
-
             if studio_id != None:  # If we have a valid ID, add studio to Scene
                 scene_data["studio_id"] = studio_id
                 
@@ -743,15 +748,20 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
                 performer_name = ""
                 performer_aliases = []
                 unique_performer_metadataapi = False
-                
                 performer_name = scraped_performer['name'] 
                 stash_performer = my_stash.getPerformerByName(performer_name)
-                if not stash_performer: #If site name matches someone in Stash, proceed.  Otherwise...
-                    if keyIsSet(scraped_performer, ['parent','name']) and areAliases(scraped_performer['name'], scraped_performer['parent']['name'] ): #"Parent" performer found at ThePornDB, and Parent performer seems to be a valid alias to site performer
+                if (
+                    not stash_performer and #Site name does not match someone in Stash
+                    keyIsSet(scraped_performer, ['parent','name']) and #TPBD has a linked parent
+                        (areAliases(scraped_performer['name'], scraped_performer['parent']['name'] ) or #Parent performer seems to be a valid alias to site performer
+                        " " not in scraped_performer['name'] or #Single name, so we just trust TPBD
+                        trust_tpbd_aliases
+                        )
+                    ):
                         performer_name = scraped_performer['parent']['name']
                         unique_performer_metadataapi = True
                         stash_performer = my_stash.getPerformerByName(performer_name, performer_aliases) #Adopt the parent name only if we can verify it's an alias of the site name.  If so, either tag w/ existing performer or add new performer when requirements are met.
-                    
+  
                 if stash_performer:  #If performer already exists
                     performer_id = stash_performer["id"]
                 # Add ambigous performer tag if we meet relevant requirements
@@ -762,7 +772,10 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
                             scraped_performer["extra"]["gender"] != 'Male'
                             )
                         ): #Note the relaxed gender requirement for ambiguous performers
-                        print(performer_name+" was not found in Stash. However, "+performer_name+" is not linked to a known (multi-site) performer at ThePornDB.  Skipping addition and tagging scene.")
+                        if not keyIsSet(scraped_performer, ['parent','name']):
+                            print(performer_name+" was not found in Stash. However, "+performer_name+" is not linked to a known (multi-site) performer at ThePornDB.  Skipping addition and tagging scene.")
+                        else:
+                            print("Found "+scraped_performer['name']+" in scene, which TPBD says is an alias of "+scraped_performer['parent']['name']+".  However, that couldn't be verified, so skipping tagging.  To overwrite, manually add the performer and alias in stash, or set trust_tpbd_aliases to True in your configuration.py")
                         tag_id = my_stash.getTagByName("ThePornDB Ambiguous Performer: "+performer_name, True)["id"]
                         scene_data["tag_ids"].append(tag_id)
                         if performer_name.lower() in path.lower():  #If the ambiguous performer is in the file name, put them in the title too.
@@ -889,12 +902,16 @@ include_performers_in_title = True #If true, performers will be prepended to the
 clean_filename = True #If true, will try to clean up filenames before attempting scrape. Probably unnecessary, as ThePornDB already does this
 compact_studio_names = False # If true, this will remove spaces from studio names added from ThePornDB
 ignore_ssl_warnings = False # Set to true if your Stash uses SSL w/ a self-signed cert
+trust_tpbd_aliases = False #Trust TPBDs aliases without double checking
 
 def loadConfig():
     try:  # Try to load configuration.py values
         import configuration
         for key, value in vars(configuration).items():
-            globals()[key]=value
+           # if globals().get(key, None):
+                globals()[key]=value
+            #else:
+            #    logging.warning("Invalid configuration parameter: "+key)
         return True
     except ImportError:
         logging.error("No configuration found.  Double check your configuration.py file exists.")
@@ -959,7 +976,8 @@ get_images_babepedia = False #If true, will try to grab an image from babepedia 
 include_performers_in_title = True #If true, performers will be prepended to the title
 clean_filename = True #If true, will try to clean up filenames before attempting scrape. Probably unnecessary, as ThePornDB already does this
 compact_studio_names = False # If true, this will remove spaces from studio names added from ThePornDB
-ignore_ssl_warnings=True # Set to true if your Stash uses SSL w/ a self-signed cert""".format(server_ip, server_port, username, password, use_https))
+ignore_ssl_warnings=True # Set to true if your Stash uses SSL w/ a self-signed cert
+trust_tpbd_aliases = False #Trust TPBDs aliases without double checking""".format(server_ip, server_port, username, password, use_https))
     f.close()
     print("Configuration file created.  All values are currently at defaults.  It is highly recommended that you edit the configuration.py to your liking.  Otherwise, just re-run the script to use the defaults.")
     sys.exit()
