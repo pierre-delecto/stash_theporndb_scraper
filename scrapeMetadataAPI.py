@@ -846,9 +846,7 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
         
         logging.debug("Now updating scene with the following data:")
         logging.debug(scene_data)
-
         my_stash.updateSceneData(scene_data)
-
     except Exception as e:
         logging.error("Scrape succeeded, but update failed.", exc_info=True)
 
