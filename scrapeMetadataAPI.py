@@ -647,7 +647,7 @@ def getQuery(scene):
     if parse_with_filename:
         try:
             if re.search(r'^[A-Z]:\\', scene['path']):  #If we have Windows-like paths
-                parse_result = re.search(r'^[A-z]:\\((.+)\\)*(.+)\.(.+)$', scene['path']).group(2)
+                parse_result = re.search(r'^[A-z]:\\((.+)\\)*(.+)\.(.+)$', scene['path'])
             else:  #Else assume Unix-like paths
                 parse_result = re.search(r'^\/((.+)\/)*(.+)\.(.+)$', scene['path'])
             file_name = parse_result.group(3)
