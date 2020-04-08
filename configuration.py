@@ -1,9 +1,9 @@
 #Server configuration
 use_https = True # Set to false for HTTP
-server_ip= "192.168.1.3"
-server_port = "9999"
-username="abggm"
-password="abggmpass"
+server_ip= "<IP_ADDRESS>"
+server_port = "<PORT>"
+username="<USERNAME>"
+password="<PASSWORD>"
 
 # Configuration options
 scrape_tag= "scraped_from_theporndb"  #Tag to be added to scraped scenes.  Set to None to disable
