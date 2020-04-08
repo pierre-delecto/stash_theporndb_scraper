@@ -204,6 +204,18 @@ class stash_interface:
                         name
                         id
                     }
+                  movies
+                    {
+                        movie 
+                        {
+                            id
+                        }
+                    scene_index
+                    }
+                  gallery
+                    {
+                        id
+                    }
                 }
               }
             }
@@ -418,31 +430,42 @@ class stash_interface:
             return self.getTagByName(name)
 
         return None
+
+    def createSceneUpdateData(self, scene_data):  #Scene data returned from stash has a different format than what is accepted by the UpdateScene graphQL query.  This converts one format to another
+        scene_update_data = {}
+        if keyIsSet(scene_data, "id"): scene_update_data["id"] = scene_data["id"]
+        if keyIsSet(scene_data, "title"): scene_update_data["title"] = scene_data["title"]
+        if keyIsSet(scene_data, "details"): scene_update_data["details"] = scene_data["details"]
+        if keyIsSet(scene_data, "url"): scene_update_data["url"] = scene_data["url"]
+        if keyIsSet(scene_data, "date"): scene_update_data["date"] = scene_data["date"]
+        if keyIsSet(scene_data, "rating"): scene_update_data["rating"] = scene_data["rating"]
+        if keyIsSet(scene_data, "studio"): scene_update_data["studio_id"] = scene_data["studio"]["id"]
+        if keyIsSet(scene_data, "gallery"): scene_update_data["gallery_id"] = scene_data["gallery"]["id"]
+        if keyIsSet(scene_data, "movies"):
+            scene_update_data["movies"] = []
+            for entry in scene_data["movies"]:
+                update_date_movie = {}
+                update_date_movie["movie_id"]=entry["movie"]["id"]
+                update_date_movie["scene_index"]=entry["scene_index"]
+                scene_update_data["movies"].append(update_date_movie)
+        else:
+            scene_update_data["movies"] = []
+        
+        if keyIsSet(scene_data, "performers"):
+            scene_update_data["performer_ids"] = []
+            for performer in scene_data["performers"]:
+                scene_update_data["performer_ids"].append(performer["id"])
+        else:
+            scene_update_data["performer_ids"] = []
+        if keyIsSet(scene_data, "tags"):
+            scene_update_data["tag_ids"] = []
+            for tag in scene_data["tags"]:
+                scene_update_data["tag_ids"].append(tag["id"])
+        else:
+            scene_update_data["tag_ids"] = []
+        return scene_update_data
               
 #Script-specific functions        
-def createSceneUpdateFromSceneData(scene_data):  #Scene data returned from stash has a different format than what is accepted by the UpdateScene graphQL query.  This converts one format to another
-    scene_update_data = {}
-    if keyIsSet(scene_data, "id"): scene_update_data["id"] = scene_data["id"]
-    if keyIsSet(scene_data, "title"): scene_update_data["title"] = scene_data["title"]
-    if keyIsSet(scene_data, "details"): scene_update_data["details"] = scene_data["details"]
-    if keyIsSet(scene_data, "url"): scene_update_data["url"] = scene_data["url"]
-    if keyIsSet(scene_data, "date"): scene_update_data["date"] = scene_data["date"]
-    if keyIsSet(scene_data, "rating"): scene_update_data["rating"] = scene_data["rating"]
-    if keyIsSet(scene_data, "studio"): scene_update_data["studio_id"] = scene_data["studio"]["id"]
-    if keyIsSet(scene_data, "performers"):
-        scene_update_data["performer_ids"] = []
-        for performer in scene_data["performers"]:
-            scene_update_data["performer_ids"].append(performer["id"])
-    else:
-        scene_update_data["performer_ids"] = []
-    if keyIsSet(scene_data, "tags"):
-        scene_update_data["tag_ids"] = []
-        for tag in scene_data["tags"]:
-            scene_update_data["tag_ids"].append(tag["id"])
-    else:
-        scene_update_data["tag_ids"] = []
-    return scene_update_data
-    
 def createStashPerformerData(metadataapi_performer): #Creates stash-compliant data from raw data provided by metadataapi
     stash_performer = {}
     if keyIsSet(metadataapi_performer, ["parent", "name"]): 
@@ -646,7 +669,7 @@ def getQuery(scene):
 def scrapeScene(scene):
     global my_stash
     try:
-        scene_data = createSceneUpdateFromSceneData(scene)  # Start with our current data as a template
+        scene_data = my_stash.createSceneUpdateData(scene)  # Start with our current data as a template
         scrape_query = ""
         scrape_query = getQuery(scene)
         scraped_data = sceneQuery(scrape_query)
