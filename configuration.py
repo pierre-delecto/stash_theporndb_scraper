@@ -33,7 +33,7 @@ tag_ambiguous_performers = True  # If True, will tag ambiguous performers (perfo
 
 #Other config options
 parse_with_filename = True # If true, will query ThePornDB based on file name, rather than title, studio, and date
-dirs_in_query = 0
+dirs_in_query = 0 # The number of directories up the path to be included in the query for a filename parse query.  For example, if the file  is at \performer\mysite\video.mp4 and dirs_in_query is 1, query would be "mysite video."  If set to two, query would be "performer mysite video", etc.
 only_add_female_performers = True  #If true, only female performers are added (note, exception is made if performer name is already in title and name is found on ThePornDB)
 scrape_performers_freeones = True #If true, will try to scrape newly added performers with the freeones scraper
 get_images_babepedia = True #If true, will try to grab an image from babepedia before the one from metadataapi
