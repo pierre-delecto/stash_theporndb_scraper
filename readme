@@ -1,3 +1,5 @@
+NOTE: Recent changes to auth on the dev build of stash break the script when using a username/password.  Disable auth to allow the script to run.
+
 This is a python script intended to run from a command line to scrape information for Stash scenes from ThePornDB (metadataapi.net).  Tested for Unix-like systems, only basic testing done for Windows.  Most features are OS-agnostic, but file name parsing may break on a Windows system.  Now modified to run on Python 3 (Needs to be modified to run under Python 2 - see older version that doens't support studios or tags in that case).
 
 Currently, the script supports setting titles, performers, tags, studios, details, and date.  All fields are optional and can be disabled via config options.  Current title, studio, details, and date are overwritten with new data. Current performers and tags are maintained with new results added. If a new performer/studio/tag is found that's not currently in Stash, the script can optionally add the performer/studio/tag using data from ThePornDB.  It can also optionally (via config options) scrape FreeOnes for performer data, and try to pull an image from Babepedia.
