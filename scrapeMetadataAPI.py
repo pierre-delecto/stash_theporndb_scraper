@@ -64,6 +64,8 @@ class stash_interface:
     username = ""
     password = ""
     ignore_ssl_warnings = ""
+    http_auth_type = ""
+    auth_token = ""
     
     headers = {
         "Accept-Encoding": "gzip, deflate, br",
@@ -79,25 +81,47 @@ class stash_interface:
         self.password = pword
         self.ignore_ssl_warnings = ignore_ssl
         if ignore_ssl: requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+        self.setAuth()
         self.populatePerformers()
         self.populateTags()
         self.populateStudios()
-        
+
+    def setAuth(self):
+        r = requests.get(self.server+"/playground", verify= not self.ignore_ssl_warnings)
+        if len(r.history)>0 and r.history[-1].status_code == 302:
+            self.http_auth_type="jwt"
+            self.jwtAuth()
+        elif r.status_code == 200:
+            self.http_auth_type="none"
+        else:
+            self.http_auth_type="basic"
+        return
+
+    def jwtAuth(self):
+         response = requests.post(self.server+"/login", data = {'username':self.username, 'password':self.password}, verify= not self.ignore_ssl_warnings)
+         self.auth_token=response.cookies['session']
+
     #GraphQL Functions    
     
     def callGraphQL(self, query, variables = None):
+        graphql_server = self.server+"/graphql"
         json = {}
         json['query'] = query
         if variables:
             json['variables'] = variables
         
         try:
-            request = requests.post(self.server, json=json, headers=self.headers, auth=(self.username, self.password), verify= not self.ignore_ssl_warnings)
-            if request.status_code == 200:
-                result = request.json()
+            if self.http_auth_type == "basic":
+                response = requests.post(graphql_server, json=json, headers=self.headers, auth=(self.username, self.password), verify= not self.ignore_ssl_warnings)
+            elif self.http_auth_type == "jwt":
+                response = requests.post(graphql_server, json=json, headers=self.headers, cookies={'session':self.auth_token}, verify= not self.ignore_ssl_warnings)
+            else:
+                response = requests.post(graphql_server, json=json, headers=self.headers, verify= not self.ignore_ssl_warnings)
+            if response.status_code == 200:
+                result = response.json()
                 return result
             else:
-                raise Exception("GraphQL query failed to run by returning code of {}. Query: {}.  Variables: {}".format(request.status_code, query, variables))
+                raise Exception("GraphQL query failed to run by returning code of {}. Query: {}.  Variables: {}".format(response.status_code, query, variables))
         except requests.exceptions.SSLError:
             proceed = input("Caught certificate error trying to talk to Stash. Add ignore_ssl_warnings=True to your configuration.py to ignore permanently. Ignore for now? (yes/no):")
             if proceed == 'y' or proceed == 'Y' or proceed =='Yes' or proceed =='yes':
@@ -1011,9 +1035,9 @@ def main():
         loadConfig()
 
         if use_https:
-            server = 'https://'+str(server_ip)+':'+str(server_port)+'/graphql'
+            server = 'https://'+str(server_ip)+':'+str(server_port)
         else:
-            server = 'http://'+str(server_ip)+':'+str(server_port)+'/graphql'
+            server = 'http://'+str(server_ip)+':'+str(server_port)
         
         my_stash = stash_interface(server, username, password, ignore_ssl_warnings)
 
