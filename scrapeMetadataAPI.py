@@ -718,9 +718,9 @@ def scrapeScene(scene):
         if len(scraped_data) > 1:  # Fix a bug where multiple ThePornDB results are the same scene
             scene_iter = iter(scraped_data)
             next(scene_iter)
-            for scene in scene_iter:
-                if scene['title'] == scraped_data[0]['title']:
-                    scraped_data.remove(scene)
+            for scraped_scene in scene_iter:
+                if scraped_scene['title'] == scraped_data[0]['title']:
+                    scraped_data.remove(scraped_scene)
         
         print("Grabbing Data For: " + scrape_query)
 
