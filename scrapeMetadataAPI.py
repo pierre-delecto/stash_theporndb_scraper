@@ -211,21 +211,17 @@ class stash_interface:
                 scenes{
                   id
                   title
-                  date
                   details
+                  url
+                  date
+                  rating
                   path
                   studio {
                     id
                     name
                     }
-                  performers
+                  gallery
                     {
-                        name
-                        id
-                    }
-                  tags
-                    {
-                        name
                         id
                     }
                   movies
@@ -236,8 +232,14 @@ class stash_interface:
                         }
                     scene_index
                     }
-                  gallery
+                  performers
                     {
+                        name
+                        id
+                    }
+                  tags
+                    {
+                        name
                         id
                     }
                 }
