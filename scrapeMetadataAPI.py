@@ -674,10 +674,12 @@ def getQuery(scene):
         try:
             if re.search(r'^[A-Z]:\\', scene['path']):  #If we have Windows-like paths
                 parse_result = re.search(r'^[A-z]:\\((.+)\\)*(.+)\.(.+)$', scene['path'])
+                dirs = parse_result.group(2).split("\\")
             else:  #Else assume Unix-like paths
                 parse_result = re.search(r'^\/((.+)\/)*(.+)\.(.+)$', scene['path'])
+                dirs = parse_result.group(2).split("/")
             file_name = parse_result.group(3)
-            dirs = parse_result.group(2).split("/")
+            
         except Exception:
             logging.error("Error when parsing scene path: "+scene['path'], exc_info=True)
             return
@@ -873,7 +875,7 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
                     scraped_scene["title"] = lreplace(name, '', scraped_scene["title"]).strip()
 
             new_title = new_title + " " + scraped_scene["title"]
-            scene_data["title"] = new_title
+            scene_data["title"] = new_title.strip()
 
         #Set tag_ids for tags_to_add           
         for tag_dict in tags_to_add:
