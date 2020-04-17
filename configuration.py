@@ -17,7 +17,8 @@ set_cover_image = True
 set_performers = True
 set_studio = True
 set_tags = True
-set_title = True 
+set_title = True
+set_url = True
 
 #Set what content we add to Stash, if found in ThePornDB but not in Stash
 add_studio = True  
