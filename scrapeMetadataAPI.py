@@ -868,6 +868,7 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
         
         if set_details: scene_data["details"] = scraped_scene["description"] #Add details
         if set_date: scene_data["date"] = scraped_scene["date"]  #Add date
+        if set_url: scene_data["url"] = scraped_scene["url"]  #Add URL
         if set_cover_image and keyIsSet(scraped_scene, ["background","small"]) and "default.png" not in scraped_scene["background"]['small']:  #Add cover_image 
             cover_image = getJpegImage(scraped_scene["background"]['small'])
             if cover_image:
@@ -1041,6 +1042,7 @@ set_performers = True
 set_studio = True
 set_tags = True
 set_title = True 
+set_url = True
 
 #Set what content we add to Stash, if found in ThePornDB but not in Stash
 add_studio = False  
@@ -1117,6 +1119,7 @@ set_performers = True
 set_studio = True
 set_tags = True
 set_title = True 
+set_url = True
 
 #Set what content we add to Stash, if found in ThePornDB but not in Stash
 add_studio = False  
