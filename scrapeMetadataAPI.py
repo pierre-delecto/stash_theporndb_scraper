@@ -373,11 +373,32 @@ class stash_interface:
             logging.error("Error in deleting tag", exc_info=True)
             logging.error(variables)
     
+    def deletePerformer(self, input_data):  
+        performer_data = {}
+        performer_data["id"] = input_data["id"]
+        
+        query = """
+        mutation performerDestroy($input:PerformerDestroyInput!) {
+          performerDestroy(input: $input)
+        }
+        """
+        variables = {'input': performer_data}
+
+        try:
+            result = self.callGraphQL(query, variables)
+            self.populateTags()
+            return result["data"]["performerDestroy"]
+        except Exception as e:
+            logging.error("Error in deleting performer", exc_info=True)
+            logging.error(variables)
+
     def updatePerformer(self, performer_data):
         update_data = performer_data
         if update_data.get('aliases', None):
             update_data['aliases'] = ', '.join(update_data['aliases'])
-        
+        if update_data.get('image_path', None):
+            update_data.pop('image_path',None)
+
         query = """
     mutation performerUpdate($input:PerformerUpdateInput!) {
       performerUpdate(input: $input){
@@ -580,7 +601,7 @@ def getPerformerImageB64(name):  #Searches Babepedia and MetadataAPI for a perfo
                 return image_b64.decode(ENCODING)
 
             # Try aliases at Babepedia
-            if performer.get("aliases",None):
+            if performer and performer.get("aliases",None):
                 for alias in performer["aliases"]:
                     image = getBabepediaImage(alias)
                     if image:
@@ -598,6 +619,26 @@ def getPerformerImageB64(name):  #Searches Babepedia and MetadataAPI for a perfo
         return None
     except Exception as e:
         logging.error("Error Getting Performer Image", exc_info=True)
+
+
+def getPerformer(name):
+    search_url = "https://metadataapi.net/api/performers?q="+urllib.parse.quote(name)
+    data_url_prefix = "https://metadataapi.net/api/performers/"
+    try:
+        result = requests.get(search_url).json()
+        metadataapi_error_count = 0
+        if result.get("data", [{}])[0].get("id", None):
+            performer_id = result["data"][0]["id"]
+            return requests.get(data_url_prefix+performer_id).json()["data"]
+        else:
+            return None
+    except ValueError:
+        logging.error("Error communicating with MetadataAPI")        
+        metadataapi_error_count = metadataapi_error_count + 1
+        if metadataapi_error_count > 3:
+            logging.error("MetaDataAPI seems to be down.  Exiting.")
+            sys.exit()
+           
 
 def sceneQuery(query, parse_function = True):  # Scrapes MetadataAPI based on query.  Returns an array of scenes as results, or None
     global metadataapi_error_count
@@ -642,29 +683,47 @@ def manuallyDisambiguateMetadataAPIResults(scrape_query, scraped_data):
         new_data.append(scraped_data[selection-1])
         return new_data
 
-def areAliases(first_performer, second_performer):
-    if first_performer == second_performer: #No need to conduct checks if they're the same
+def areAliases(first_performer, second_performer, site = None):
+    if first_performer.lower() == second_performer.lower(): #No need to conduct checks if they're the same
         return True
     
     global my_stash
+    global known_aliases
+    if compact_studio_names and site:
+        site = site.replace(' ','')
+
     first_performer_aliases = [first_performer]
+    if known_aliases.get(first_performer, None):
+        first_performer_aliases = first_performer_aliases + known_aliases.get(first_performer, None)
     second_performer_aliases = [second_performer]
+    if known_aliases.get(second_performer, None):
+        second_performer_aliases = second_performer_aliases + known_aliases.get(second_performer, None)
     ##build aliases of both first/second performer
     #First performer
     result = my_stash.getPerformerByName(first_performer)
-    if result and keyIsSet(result, "aliases"):
+    if result and keyIsSet(result, "aliases"):  #Add Stash Aliases
         first_performer_aliases =  list(set(first_performer_aliases + result["aliases"]))
     result = my_stash.scrapePerformerFreeones(first_performer)
-    if result and keyIsSet(result, "aliases"):
+    if result and keyIsSet(result, "aliases"):#Add Freeones Aliases
+        first_performer_aliases =  list(set(first_performer_aliases + result["aliases"]))
+    result = getPerformer(first_performer)
+    if result and keyIsSet(result, "aliases"):#Add TPBD Aliases
         first_performer_aliases =  list(set(first_performer_aliases + result["aliases"]))
     #Second Performer
     result = my_stash.getPerformerByName(second_performer)
-    if result and keyIsSet(result, "aliases"):
+    if result and keyIsSet(result, "aliases"):#Add Stash Aliases
         second_performer_aliases =  list(set(second_performer_aliases + result["aliases"]))
     result = my_stash.scrapePerformerFreeones(second_performer)
-    if result and keyIsSet(result, "aliases"):
+    if result and keyIsSet(result, "aliases"):#Add Freeones Aliases
+        second_performer_aliases =  list(set(second_performer_aliases + result["aliases"]))
+    result = getPerformer(second_performer)
+    if result and keyIsSet(result, "aliases"):#Add TPBD Aliases
         second_performer_aliases =  list(set(second_performer_aliases + result["aliases"]))        
     #check if one is an alias of another, but don't compare aliases
+    if first_performer in second_performer_aliases or second_performer in first_performer_aliases:
+        return True
+    first_performer = first_performer+" ("+site+")"
+    second_performer = second_performer+" ("+site+")"
     if first_performer in second_performer_aliases or second_performer in first_performer_aliases:
         return True
     return False
@@ -674,10 +733,11 @@ def getQuery(scene):
         try:
             if re.search(r'^[A-Z]:\\', scene['path']):  #If we have Windows-like paths
                 parse_result = re.search(r'^[A-z]:\\((.+)\\)*(.+)\.(.+)$', scene['path'])
+                dirs = parse_result.group(2).split("\\")
             else:  #Else assume Unix-like paths
                 parse_result = re.search(r'^\/((.+)\/)*(.+)\.(.+)$', scene['path'])
+                dirs = parse_result.group(2).split("/")
             file_name = parse_result.group(3)
-            dirs = parse_result.group(2).split("/")
         except Exception:
             logging.error("Error when parsing scene path: "+scene['path'], exc_info=True)
             return
@@ -753,13 +813,58 @@ def scrapeScene(scene):
     except Exception as e:
         logging.error("Exception encountered when scraping '"+scrape_query, exc_info=True)
 
+def manConfirmAlias(scraped_performer, site): #Returns scraped_performer if response is positive, None otherwise.  If Always or Site are selected, scraped_performer is updated to include a new alias
+    global known_aliases
+    if compact_studio_names:
+        site = site.replace(' ','')
+    response = input("Found "+scraped_performer['name']+" as a performer in scene, which TPBD indicates is an alias of "+scraped_performer['parent']['name']+".  Should we trust that? (Y)es / (N)o / (A)lways / Always for this (S)ite:")
+    if response == 'y' or response == 'Y' or response =='Yes' or response =='yes':
+        return scraped_performer
+    elif response == 'a' or response == 'A' or response =='always' or response =='Always':
+        #Update our global var
+        known_alias_entry = known_aliases.get(scraped_performer['parent']['name'], None)
+        if known_alias_entry:
+            known_aliases[scraped_performer['parent']['name']].append(scraped_performer['name'])
+        else:
+            known_aliases[scraped_performer['parent']['name']] = [scraped_performer['name']]
+        if keyIsSet(scraped_performer, ["parent", "aliases"]):
+            scraped_performer["parent"]['aliases'].append(scraped_performer['name'])
+        else:
+            scraped_performer["parent"]['aliases'] = [scraped_performer['name']]
+        return scraped_performer
+    elif response == 's' or response == 'S' or response =='Site' or response =='site':
+        #Update our global var
+        known_alias_entry = known_aliases.get(scraped_performer['parent']['name'], None)
+        if known_alias_entry:
+            known_aliases[scraped_performer['parent']['name']].append(scraped_performer['name']+" ("+site+")")
+        else:
+            known_aliases[scraped_performer['parent']['name']] = [scraped_performer['name']+" ("+site+")"]
+        if keyIsSet(scraped_performer, ["parent", "aliases"]):
+            scraped_performer["parent"]['aliases'].append(scraped_performer['name']+" ("+site+")")
+        else:
+            scraped_performer["parent"]['aliases'] = [scraped_performer['name']+" ("+site+")"]
+        return scraped_performer
+    return None
+
+def addPerformer(scraped_performer):  #Adds performer using TPDB data, returns ID of performer
+    stash_performer_data = createStashPerformerData(scraped_performer)
+    if scrape_performers_freeones:
+        freeones_data = my_stash.scrapePerformerFreeones(scraped_performer['parent']['name'])
+        if freeones_data: 
+            if keyIsSet(freeones_data, "aliases") and keyIsSet(scraped_performer, "aliases") :
+                freeones_data['aliases'] = list(set(freeones_data['aliases'] + scraped_performer['aliases']))
+            stash_performer_data.update(freeones_data)
+
+    stash_performer_data["image"] = getPerformerImageB64(scraped_performer['parent']['name'])
+    return my_stash.addPerformer(stash_performer_data)
+
 def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
     tag_ids_to_add = []
     tags_to_add = []
     performer_names = []
     try:
         if ambiguous_tag: ambiguous_tag_id = my_stash.getTagByName(ambiguous_tag)['id']
-        if ambiguous_tag and ambiguous_tag_id in scene_data["tag_ids"]: scene_data["tag_ids"].remove(ambiguous_tag_id) #Remove ambiguous tag if we disambiguated
+        if ambiguous_tag and ambiguous_tag_id in scene_data["tag_ids"]: scene_data["tag_ids"].remove(ambiguous_tag_id) #Remove ambiguous tag; it will be readded later if the scene is still ambiguous
         
         if set_details: scene_data["details"] = scraped_scene["description"] #Add details
         if set_date: scene_data["date"] = scraped_scene["date"]  #Add date
@@ -793,64 +898,72 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
         if set_performers and keyIsSet(scraped_scene, "performers"):
             scraped_performer_ids = []
             for scraped_performer in scraped_scene["performers"]:
+                if  (only_add_female_performers and 
+                    not scraped_performer['name'] .lower() in path.lower() and (  
+                        (keyIsSet(scraped_performer, ["parent", "extras", "gender"]) and 
+                        scraped_performer["parent"]["extras"]["gender"] != 'Female') 
+                        or
+                        (not keyIsSet(scraped_performer, ["parent", "extras", "gender"]) and
+                        keyIsSet(scraped_performer, ["extra", "gender"]) and 
+                        scraped_performer["extra"]["gender"] == 'Male'))):
+                    break # Break on male performers not in path
+                
                 performer_id = None
-                performer_name = ""
-                performer_aliases = []
-                unique_performer_metadataapi = False
                 performer_name = scraped_performer['name'] 
                 stash_performer = my_stash.getPerformerByName(performer_name)
-                if (
-                    not stash_performer and #Site name does not match someone in Stash
-                    keyIsSet(scraped_performer, ['parent','name']) and #TPBD has a linked parent
-                        (areAliases(scraped_performer['name'], scraped_performer['parent']['name'] ) or #Parent performer seems to be a valid alias to site performer
+                add_this_performer = False
+                if stash_performer:  
+                    performer_id = stash_performer["id"] #If performer already exists, use that
+                    performer_names.append(performer_name)  #Add to list of performers in scene
+                elif keyIsSet(scraped_performer, ['parent','name']): #If site name does not match someone in Stash and TPBD has a linked parent
+                    if  (  #Test for when we should automatically accept the parent name
+                        areAliases(scraped_performer['name'], scraped_performer['parent']['name'], scraped_studio['name']) or #Parent performer seems to be a valid alias to site performer
                         " " not in scraped_performer['name'] or #Single name, so we just trust TPBD
-                        trust_tpbd_aliases
-                        )
-                    ):
-                        performer_name = scraped_performer['parent']['name']
-                        unique_performer_metadataapi = True
-                        stash_performer = my_stash.getPerformerByName(performer_name, performer_aliases) #Adopt the parent name only if we can verify it's an alias of the site name.  If so, either tag w/ existing performer or add new performer when requirements are met.
-  
-                if stash_performer:  #If performer already exists
-                    performer_id = stash_performer["id"]
-                # Add ambigous performer tag if we meet relevant requirements
-                elif  not unique_performer_metadataapi: 
-                    if  tag_ambiguous_performers and (
-                        not only_add_female_performers or (
-                            keyIsSet(scraped_performer, ["extra", "gender"]) and 
-                            scraped_performer["extra"]["gender"] != 'Male'
-                            )
-                        ): #Note the relaxed gender requirement for ambiguous performers
-                        if not keyIsSet(scraped_performer, ['parent','name']):
-                            print(performer_name+" was not found in Stash. However, "+performer_name+" is not linked to a known (multi-site) performer at ThePornDB.  Skipping addition and tagging scene.")
+                        trust_tpbd_aliases #Flag says to just trust TPBD
+                    ):  
+                        performer_name = scraped_performer['parent']['name'] #Adopt the parent name
+                        stash_performer = my_stash.getPerformerByName(performer_name) 
+                        if stash_performer:  
+                            performer_id = stash_performer["id"] #If performer already exists, use that
+                            performer_names.append(performer_name)  #Add to list of performers in scene
                         else:
-                            print("Found "+scraped_performer['name']+" in scene, which TPBD says is an alias of "+scraped_performer['parent']['name']+".  However, that couldn't be verified, so skipping tagging.  To overwrite, manually add the performer and alias in stash, or set trust_tpbd_aliases to True in your configuration.py")
-                        tag_id = my_stash.getTagByName("ThePornDB Ambiguous Performer: "+performer_name, True)["id"]
-                        scene_data["tag_ids"].append(tag_id)
-                        if performer_name.lower() in path.lower():  #If the ambiguous performer is in the file name, put them in the title too.
-                            performer_names.append(performer_name)
-                # Add performer if we meet relevant requirements
-                elif add_performers:
-                    if  (
-                        performer_name.lower() in path.lower() or  
-                        scraped_performer['name'].lower() in path.lower() or 
-                        not only_add_female_performers or (
-                            keyIsSet(scraped_performer, ["parent", "extras", "gender"]) and 
-                            scraped_performer["parent"]["extras"]["gender"] == 'Female'
-                            )
-                        ):
-                        print("Did not find " + performer_name + " in Stash.  Adding performer.")
-                        performer_id = my_stash.addPerformer(createStashPerformerData(scraped_performer))
-                        performer_data = {}
-                        if scrape_performers_freeones:
-                            performer_data = my_stash.scrapePerformerFreeones(performer_name)
-                            if not performer_data:
-                                performer_data = {}
-                        performer_data["id"] = performer_id
-                        performer_data["image"] = getPerformerImageB64(performer_name)
-                        my_stash.updatePerformer(performer_data)
+                            add_this_performer = True
+                    else: #We can't automatically trust the parent name.  Ask for manual confirmation if flag is set.
+                        if confirm_questionable_aliases:
+                            confirmed_performer =  manConfirmAlias(scraped_performer, scraped_scene['site']["name"])  
+                            if confirmed_performer:
+                                performer_name = scraped_performer['parent']['name'] #Adopt the parent name
+                                stash_performer = my_stash.getPerformerByName(performer_name) 
+                                if stash_performer:  
+                                    performer_id = stash_performer["id"] #If performer already exists, use that
+                                    performer_names.append(performer_name)  #Add to list of performers in scene
+                                    stash_performer.update(createStashPerformerData(confirmed_performer))
+                                    my_stash.updatePerformer(stash_performer) ##Update the performer to capture new aliases if needed
+                                else:
+                                    add_this_performer = True
+                        else:
+                            print("Found "+scraped_performer['name']+" in scene, which TPBD says is an alias of "+scraped_performer['parent']['name']+".  However, that couldn't be verified, so skipping addition and tagging scene.  To overwrite, manually add the performer and alias in stash, or set trust_tpbd_aliases to True in your configuration.py")
+                            tag_id = my_stash.getTagByName("ThePornDB Unconfirmed Alias", True)["id"]
+                            scene_data["tag_ids"].append(tag_id)
+                            if performer_name.lower() in path.lower():  #If the ambiguous performer is in the file name, put them in the title too.
+                                performer_names.append(performer_name)
+                    
+                # Add ambigous performer tag if we meet relevant requirements
+                if  ( not stash_performer and #We don't have a match so far
+                      not keyIsSet(scraped_performer, ['parent','name']) and #No TPBD parent
+                      tag_ambiguous_performers  #Config says tag no parent
+                    ):
+                    print(performer_name+" was not found in Stash. However, "+performer_name+" is not linked to a known (multi-site) performer at ThePornDB.  Skipping addition and tagging scene.")
+                    tag_id = my_stash.getTagByName("ThePornDB Ambiguous Performer: "+performer_name, True)["id"]
+                    scene_data["tag_ids"].append(tag_id)
 
-                if performer_id != None:  # If we have a valid ID, add performer to Scene
+                    
+                # Add performer if we meet relevant requirements
+                if add_this_performer and add_performers:
+                    print("Did not find " + performer_name + " in Stash.  Adding performer.")
+                    performer_id = addPerformer(scraped_performer)
+
+                if performer_id:  # If we have a valid ID, add performer to Scene
                     scraped_performer_ids.append(performer_id)
             scene_data["performer_ids"] = list(set(scene_data["performer_ids"] + scraped_performer_ids))                              
 
@@ -873,7 +986,7 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
                     scraped_scene["title"] = lreplace(name, '', scraped_scene["title"]).strip()
 
             new_title = new_title + " " + scraped_scene["title"]
-            scene_data["title"] = new_title
+            scene_data["title"] = new_title.strip()
 
         #Set tag_ids for tags_to_add           
         for tag_dict in tags_to_add:
@@ -904,6 +1017,7 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
 metadataapi_error_count = 0
 my_stash = None
 ENCODING = 'utf-8'
+known_aliases = {}
 
 ###############################################
 # DEFAULT CONFIGURATION OPTIONS.  DO NOT EDIT #
@@ -916,6 +1030,7 @@ password=""
 
 scrape_tag= "scraped_from_theporndb"  #Tag to be added to scraped scenes.  Set to None to disable
 disambiguate_only = False # Set to True to run script only on scenes tagged due to ambiguous scraping. Useful for doing manual disambgiuation.  Must set ambiguous_tag for this to work
+verify_aliases_only = False # Set to True to scrape only scenes that were skipped due to unconfirmed aliases 
 rescrape_scenes= False # If False, script will not rescrape scenes previously scraped successfully.  Must set scrape_tag for this to work
 
 #Set what fields we scrape
@@ -938,6 +1053,7 @@ auto_disambiguate = False  #Set to True to try to pick the top result from ThePo
 manual_disambiguate = False #Set to True to prompt for a selection.  (Overwritten by auto_disambiguate)
 ambiguous_tag = "theporndb_ambiguous" #Tag to be added to scenes we skip due to ambiguous scraping.  Set to None to disable
 tag_ambiguous_performers = True  # If True, will tag ambiguous performers (performers listed on ThePornDB only for a single site, not across sites)
+confirm_questionable_aliases = True #If True, when TPBD lists an alias that we can't verify, manually prompt for config
 
 #Other config options
 parse_with_filename = True # If true, will query ThePornDB based on file name, rather than title, studio, and date
@@ -1045,6 +1161,7 @@ def main():
 
         ambiguous_tag_id = my_stash.getTagByName(ambiguous_tag, True)["id"]
         scrape_tag_id  = my_stash.getTagByName(scrape_tag, True)["id"]
+        unconfirmed_alias_id = my_stash.getTagByName("ThePornDB Unconfirmed Alias", True)["id"]
         
         query=""
         if len(sys.argv) > 1:
@@ -1055,6 +1172,8 @@ def main():
 
         if disambiguate_only:  #If only disambiguating scenes
             findScenes_params['scene_filter'] = {'tags': { 'modifier':'INCLUDES', 'value': [ambiguous_tag_id]}}
+        elif verify_aliases_only: #If only disambiguating aliases
+            findScenes_params['scene_filter'] = {'tags': { 'modifier':'INCLUDES', 'value': [unconfirmed_alias_id]}}
         elif not rescrape_scenes: #If only scraping unscraped scenes
             findScenes_params['scene_filter'] = {'tags': { 'modifier':'EXCLUDES', 'value': [scrape_tag_id]}}
         
