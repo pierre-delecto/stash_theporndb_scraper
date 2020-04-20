@@ -8,6 +8,7 @@ import base64
 import math
 import logging
 import argparse
+from datetime import datetime
 from io import BytesIO
 from urllib.parse import quote
 from PIL import Image
@@ -67,6 +68,7 @@ class stash_interface:
     ignore_ssl_warnings = ""
     http_auth_type = ""
     auth_token = ""
+    min_buildtime = datetime(2020, 4, 1) 
     
     headers = {
         "Accept-Encoding": "gzip, deflate, br",
@@ -84,6 +86,7 @@ class stash_interface:
         if ignore_ssl: requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
         self.debug_mode = debug
         self.setAuth()
+        self.checkVersion()
         self.populatePerformers()
         self.populateTags()
         self.populateStudios()
@@ -139,6 +142,20 @@ class stash_interface:
                 print("Exiting.")
                 sys.exit()
 
+    def checkVersion(self):
+        query = """
+    {
+    version{
+        version
+        build_time
+    }
+    }
+    """
+        result = self.callGraphQL(query)
+        self.version_buildtime = datetime.strptime(result["data"]["version"]["build_time"], '%Y-%m-%d %H:%M:%S')
+        if self.version_buildtime < stash_interface.min_buildtime:
+            logging.error("Your Stash version appears too low to use this script.  Please upgrade to the latest \"development\" build and try again.")
+            sys.exit()
 
     def populatePerformers(self):  
         stashPerformers =[]
@@ -1336,7 +1353,11 @@ def main():
         print("Success! Finished.")
 
     except Exception as e:
-        logging.error("Something went wrong.  This probably means your configuration.py is invalid somehow.  If all else fails, delete or rename your configuration.py and the script will try to create a new one.", exc_info=config.debug_mode)
+        logging.error("""Something went wrong.  Have you:
+        • Checked to make sure you're running the "development" branch of Stash, not "latest"?
+        • Checked that you can connect to Stash at the same IP and port listed in your configuration.py?
+        If you've check both of these, run the script again with the --debug flag.  Then post the output of that in the Discord and hopefully someone can help.
+        """)
 
 if __name__ == "__main__":
     main()
