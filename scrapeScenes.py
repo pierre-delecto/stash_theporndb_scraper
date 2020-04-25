@@ -552,30 +552,30 @@ class stash_interface:
         return scene_update_data
               
 #Script-specific functions        
-def createStashPerformerData(metadataapi_performer): #Creates stash-compliant data from raw data provided by metadataapi
+def createStashPerformerData(tpbd_performer): #Creates stash-compliant data from raw data provided by ThePornDB
     stash_performer = {}
-    if keyIsSet(metadataapi_performer, ["parent", "name"]): 
-        stash_performer["name"] = metadataapi_performer["parent"]["name"]
-    if keyIsSet(metadataapi_performer, ["parent", "extras", "birthday"]): 
-        stash_performer["birthdate"] = metadataapi_performer["parent"]["extras"]["birthday"]
-    if keyIsSet(metadataapi_performer, ["parent", "extras", "measurements"]): 
-        stash_performer["measurements"] = metadataapi_performer["parent"]["extras"]["measurements"]
-    if keyIsSet(metadataapi_performer, ["parent", "extras", "tattoos"]): 
-        stash_performer["tattoos"] = metadataapi_performer["parent"]["extras"]["tattoos"]
-    if keyIsSet(metadataapi_performer, ["parent", "extras", "piercings"]): 
-        stash_performer["piercings"] = metadataapi_performer["parent"]["extras"]["piercings"]
-    if keyIsSet(metadataapi_performer, ["parent", "aliases"]) and len(metadataapi_performer["parent"]["aliases"])>1: 
-        stash_performer["aliases"] = metadataapi_performer["parent"]["aliases"]
-    if keyIsSet(metadataapi_performer, ["parent", "extras", "gender"]):
-        if metadataapi_performer["parent"]["extras"]["gender"] == "Male":
+    if keyIsSet(tpbd_performer, ["parent", "name"]): 
+        stash_performer["name"] = tpbd_performer["parent"]["name"]
+    if keyIsSet(tpbd_performer, ["parent", "extras", "birthday"]): 
+        stash_performer["birthdate"] = tpbd_performer["parent"]["extras"]["birthday"]
+    if keyIsSet(tpbd_performer, ["parent", "extras", "measurements"]): 
+        stash_performer["measurements"] = tpbd_performer["parent"]["extras"]["measurements"]
+    if keyIsSet(tpbd_performer, ["parent", "extras", "tattoos"]): 
+        stash_performer["tattoos"] = tpbd_performer["parent"]["extras"]["tattoos"]
+    if keyIsSet(tpbd_performer, ["parent", "extras", "piercings"]): 
+        stash_performer["piercings"] = tpbd_performer["parent"]["extras"]["piercings"]
+    if keyIsSet(tpbd_performer, ["parent", "aliases"]) and len(tpbd_performer["parent"]["aliases"])>1: 
+        stash_performer["aliases"] = tpbd_performer["parent"]["aliases"]
+    if keyIsSet(tpbd_performer, ["parent", "extras", "gender"]):
+        if tpbd_performer["parent"]["extras"]["gender"] == "Male":
             stash_performer["gender"] = 'MALE'
-        if metadataapi_performer["parent"]["extras"]["gender"] == "Female":
+        if tpbd_performer["parent"]["extras"]["gender"] == "Female":
             stash_performer["gender"] = 'FEMALE'            
-        if metadataapi_performer["parent"]["extras"]["gender"] == "Transgender Male":
+        if tpbd_performer["parent"]["extras"]["gender"] == "Transgender Male":
             stash_performer["gender"] = 'TRANSGENDER_MALE'
-        if metadataapi_performer["parent"]["extras"]["gender"] == "Transgender Female":
+        if tpbd_performer["parent"]["extras"]["gender"] == "Transgender Female":
             stash_performer["gender"] = 'TRANSGENDER_FEMALE'
-        if metadataapi_performer["parent"]["extras"]["gender"] == "Intersex":
+        if tpbd_performer["parent"]["extras"]["gender"] == "Intersex":
             stash_performer["gender"] = 'INTERSEX'
     return stash_performer
 
@@ -615,7 +615,7 @@ def getBabepediaImage(name):
         return getJpegImage(url)
     return None
 
-def getMetadataapiImage(name):
+def getTpbdImage(name):
     url = "https://metadataapi.net/api/performers?q="+urllib.parse.quote(name)
     if len(requests.get(url).json()["data"])==1: #If we only have 1 hit
         raw_data = requests.get(url).json()["data"][0]
@@ -625,7 +625,7 @@ def getMetadataapiImage(name):
             return image
     return None
 
-def getPerformerImageB64(name):  #Searches Babepedia and MetadataAPI for a performer image, returns it as a base64 encoding
+def getPerformerImageB64(name):  #Searches Babepedia and TPBD for a performer image, returns it as a base64 encoding
     global my_stash
     global config
     try:
@@ -650,7 +650,7 @@ def getPerformerImageB64(name):  #Searches Babepedia and MetadataAPI for a perfo
                         return image_b64.decode(ENCODING)
                         
         # Try thePornDB
-        image = getMetadataapiImage(name)
+        image = getTpbdImage(name)
         if image:
             image_b64 = base64.b64encode(image)
             stringbase = str(image_b64)
@@ -662,43 +662,43 @@ def getPerformerImageB64(name):  #Searches Babepedia and MetadataAPI for a perfo
 
 
 def getPerformer(name):
-    global metadataapi_error_count
+    global tpbd_error_count
     search_url = "https://metadataapi.net/api/performers?q="+urllib.parse.quote(name)
     data_url_prefix = "https://metadataapi.net/api/performers/"
     try:
         result = requests.get(search_url).json()
-        metadataapi_error_count = 0
+        tpbd_error_count = 0
         if result.get("data", [{}])[0].get("id", None):
             performer_id = result["data"][0]["id"]
             return requests.get(data_url_prefix+performer_id).json()["data"]
         else:
             return None
     except ValueError:
-        logging.error("Error communicating with MetadataAPI")        
-        metadataapi_error_count = metadataapi_error_count + 1
-        if metadataapi_error_count > 3:
-            logging.error("MetaDataAPI seems to be down.  Exiting.")
+        logging.error("Error communicating with ThePornDB")        
+        tpbd_error_count = tpbd_error_count + 1
+        if tpbd_error_count > 3:
+            logging.error("ThePornDB seems to be down.  Exiting.")
             sys.exit()
            
 
-def sceneQuery(query, parse_function = True):  # Scrapes MetadataAPI based on query.  Returns an array of scenes as results, or None
-    global metadataapi_error_count
+def sceneQuery(query, parse_function = True):  # Scrapes ThePornDB based on query.  Returns an array of scenes as results, or None
+    global tpbd_error_count
     if parse_function:
         url = "https://metadataapi.net/api/scenes?parse="+urllib.parse.quote(query)    
     else:
         url = "https://metadataapi.net/api/scenes?q="+urllib.parse.quote(query)
     try:
         result = requests.get(url).json()["data"]
-        metadataapi_error_count = 0
+        tpbd_error_count = 0
         return result
     except ValueError:
-        logging.error("Error communicating with MetadataAPI")        
-        metadataapi_error_count = metadataapi_error_count + 1
-        if metadataapi_error_count > 3:
-            logging.error("MetaDataAPI seems to be down.  Exiting.")
+        logging.error("Error communicating with ThePornDB")        
+        tpbd_error_count = tpbd_error_count + 1
+        if tpbd_error_count > 3:
+            logging.error("ThePornDB seems to be down.  Exiting.")
             sys.exit()
         
-def manuallyDisambiguateMetadataAPIResults(scrape_query, scraped_data):
+def manuallyDisambiguateResults(scraped_data):
     print("Found ambiguous result.  Which should we select?:")
     for index, scene in enumerate(scraped_data):
         print(index+1, end = ': ')
@@ -782,7 +782,7 @@ def getQuery(scene):
                 dirs = parse_result.group(2).split("/")
             file_name = parse_result.group(3)
         except Exception:
-            logging.error("Error when parsing scene path: "+scene['path'], exc_info=debug_mode)
+            logging.error("Error when parsing scene path: "+scene['path'], exc_info=config.debug_mode)
             return
         if config.clean_filename:
             file_name = scrubFileName(file_name)
@@ -831,7 +831,7 @@ def scrapeScene(scene):
         print("Grabbing Data For: " + scrape_query)
 
         if len(scraped_data) > 1 and config.manual_disambiguate: # Manual disambiguate
-            scraped_data = manuallyDisambiguateMetadataAPIResults(scrape_query, scraped_data)
+            scraped_data = manuallyDisambiguateResults(scraped_data)
         
         if len(scraped_data) > 1 and config.auto_disambiguate:  #Auto disambiguate
             print("Auto disambiguating...")
@@ -855,7 +855,7 @@ def scrapeScene(scene):
         else:
             print("No data found for: [{}]".format(scrape_query))
     except Exception as e:
-        logging.error("Exception encountered when scraping '"+scrape_query, exc_info=debug_mode)
+        logging.error("Exception encountered when scraping '"+scrape_query, exc_info=config.debug_mode)
 
 def manConfirmAlias(scraped_performer, site): #Returns scraped_performer if response is positive, None otherwise.  If Always or Site are selected, scraped_performer is updated to include a new alias
     global known_aliases
@@ -1112,7 +1112,7 @@ class config_class:
     dirs_in_query = 0 # The number of directories up the path to be included in the query for a filename parse query.  For example, if the file  is at \performer\mysite\video.mp4 and dirs_in_query is 1, query would be "mysite video."  If set to two, query would be "performer mysite video", etc.
     only_add_female_performers = True  #If true, only female performers are added (note, exception is made if performer name is already in title and name is found on ThePornDB)
     scrape_performers_freeones = False #If true, will try to scrape newly added performers with the freeones scraper
-    get_images_babepedia = False #If true, will try to grab an image from babepedia before the one from metadataapi
+    get_images_babepedia = False #If true, will try to grab an image from babepedia before the one from ThePornDB
     include_performers_in_title = True #If true, performers will be prepended to the title
     clean_filename = True #If true, will try to clean up filenames before attempting scrape. Probably unnecessary, as ThePornDB already does this
     compact_studio_names = False # If true, this will remove spaces from studio names added from ThePornDB
@@ -1193,7 +1193,7 @@ parse_with_filename = True # If true, will query ThePornDB based on file name, r
 dirs_in_query = 0 # The number of directories up the path to be included in the query for a filename parse query.  For example, if the file  is at \performer\mysite\video.mp4 and dirs_in_query is 1, query would be "mysite video."  If set to two, query would be "performer mysite video", etc.
 only_add_female_performers = True  #If true, only female performers are added (note, exception is made if performer name is already in title and name is found on ThePornDB)
 scrape_performers_freeones = False #If true, will try to scrape newly added performers with the freeones scraper
-get_images_babepedia = False #If true, will try to grab an image from babepedia before the one from metadataapi
+get_images_babepedia = False #If true, will try to grab an image from babepedia before the one from ThePornDB
 include_performers_in_title = True #If true, performers will be prepended to the title
 clean_filename = True #If true, will try to clean up filenames before attempting scrape. Probably unnecessary, as ThePornDB already does this
 compact_studio_names = False # If true, this will remove spaces from studio names added from ThePornDB
@@ -1287,7 +1287,7 @@ def parseArgs():
     return args.query
 
 #Globals
-metadataapi_error_count = 0
+tpbd_error_count = 0
 my_stash = None
 ENCODING = 'utf-8'
 known_aliases = {}
@@ -1301,8 +1301,8 @@ def main():
         global max_scenes
         global required_tags
         global config
-        global metadataapi_error_count
-        metadataapi_error_count = 0
+        global tpbd_error_count
+        tpbd_error_count = 0
         config.loadConfig()
         scenes = None
         
