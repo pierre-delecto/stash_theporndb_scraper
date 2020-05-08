@@ -103,9 +103,11 @@ class stash_interface:
         return
 
     def jwtAuth(self):
-         response = requests.post(self.server+"/login", data = {'username':self.username, 'password':self.password}, verify= not self.ignore_ssl_warnings)
-         self.auth_token=response.cookies['session']
-
+        response = requests.post(self.server+"/login", data = {'username':self.username, 'password':self.password}, verify= not self.ignore_ssl_warnings)
+        self.auth_token=response.cookies.get('session',None)
+        if not self.auth_token:
+            logging.error("Error authenticating with Stash.  Double check your IP, Port, Username, and Password", exc_info=self.debug_mode)
+            sys.exit()
     #GraphQL Functions    
     def callGraphQL(self, query, variables = None):
         return self.__callGraphQL(query, variables)
@@ -160,7 +162,7 @@ class stash_interface:
         result = self.callGraphQL(query)
         self.version_buildtime = datetime.strptime(result["data"]["version"]["build_time"], '%Y-%m-%d %H:%M:%S')
         if self.version_buildtime < stash_interface.min_buildtime:
-            logging.error("Your Stash version appears too low to use this script.  Please upgrade to the latest \"development\" build and try again.")
+            logging.error("Your Stash version appears too low to use this script.  Please upgrade to the latest \"development\" build and try again.", exc_info=self.debug_mode)
             sys.exit()
 
     def populatePerformers(self):  
@@ -1081,7 +1083,7 @@ class config_class:
     disambiguate_only = False # Set to True to run script only on scenes tagged due to ambiguous scraping. Useful for doing manual disambgiuation.  Must set ambiguous_tag for this to work
     verify_aliases_only = False # Set to True to scrape only scenes that were skipped due to unconfirmed aliases 
     rescrape_scenes= False # If False, script will not rescrape scenes previously scraped successfully.  Must set scrape_tag for this to work
-    debug_mode = False
+    debug_mode = True
 
     #Set what fields we scrape
     set_details = True
@@ -1125,11 +1127,13 @@ class config_class:
             for key, value in vars(configuration).items():
                 if key[0:2] == "__": 
                     continue
-                my_vars = config_class.__dict__
+                if (key == "server_ip" or key == "server_port") and ("<" in value or ">" in value):
+                    logging.warning("Please remove '<' and '>' from your server_ip and server_port lines in configuration.py")
+                    sys.exit()
                 if isinstance(value, type(vars(config_class).get(key, None))):
                     vars(self)[key]=value
                 else:
-                    logging.warning("Invalid configuration parameter: "+key)
+                    logging.warning("Invalid configuration parameter: "+key, exc_info=config_class.debug_mode)
             return True
         except ImportError:
             logging.error("No configuration found.  Double check your configuration.py file exists.")
@@ -1153,7 +1157,7 @@ class config_class:
         f = open("configuration.py", "w")
         f.write("""
 #Server configuration
-use_https = {4} # Set to false for HTTP
+use_https = {4} # Set to False for HTTP
 server_ip= "{0}"
 server_port = "{1}"
 username="{2}"
@@ -1185,19 +1189,19 @@ add_performers = False
 auto_disambiguate = False  #Set to True to try to pick the top result from ThePornDB automatically.  Will not set ambiguous_tag
 manual_disambiguate = False #Set to True to prompt for a selection.  (Overwritten by auto_disambiguate)
 ambiguous_tag = "theporndb_ambiguous" #Tag to be added to scenes we skip due to ambiguous scraping.  Set to None to disable
-trust_tpbd_aliases = True #If true, when TPBD lists an alias that we can't verify, just trust TBPD to be correct.  May lead to incorrect tagging
+trust_tpbd_aliases = True #If True, when TPBD lists an alias that we can't verify, just trust TBPD to be correct.  May lead to incorrect tagging
 tag_ambiguous_performers = True  # If True, will tag ambiguous performers (performers listed on ThePornDB only for a single site, not across sites)
 
 #Other config options
-parse_with_filename = True # If true, will query ThePornDB based on file name, rather than title, studio, and date
+parse_with_filename = True # If True, will query ThePornDB based on file name, rather than title, studio, and date
 dirs_in_query = 0 # The number of directories up the path to be included in the query for a filename parse query.  For example, if the file  is at \performer\mysite\video.mp4 and dirs_in_query is 1, query would be "mysite video."  If set to two, query would be "performer mysite video", etc.
-only_add_female_performers = True  #If true, only female performers are added (note, exception is made if performer name is already in title and name is found on ThePornDB)
-scrape_performers_freeones = False #If true, will try to scrape newly added performers with the freeones scraper
-get_images_babepedia = False #If true, will try to grab an image from babepedia before the one from ThePornDB
-include_performers_in_title = True #If true, performers will be prepended to the title
-clean_filename = True #If true, will try to clean up filenames before attempting scrape. Probably unnecessary, as ThePornDB already does this
-compact_studio_names = False # If true, this will remove spaces from studio names added from ThePornDB
-ignore_ssl_warnings=True # Set to true if your Stash uses SSL w/ a self-signed cert
+only_add_female_performers = True  #If True, only female performers are added (note, exception is made if performer name is already in title and name is found on ThePornDB)
+scrape_performers_freeones = False #If True, will try to scrape newly added performers with the freeones scraper
+get_images_babepedia = False #If True, will try to grab an image from babepedia before the one from ThePornDB
+include_performers_in_title = True #If true, performers will be added to the beginning of the title
+clean_filename = True #If True, will try to clean up filenames before attempting scrape. Probably unnecessary, as ThePornDB already does this
+compact_studio_names = False # If True, this will remove spaces from studio names added from ThePornDB
+ignore_ssl_warnings=True # Set to True if your Stash uses SSL w/ a self-signed cert
 trust_tpbd_aliases = False #Trust TPBDs aliases without double checking""".format(server_ip, server_port, username, password, use_https))
         f.close()
         print("Configuration file created.  All values are currently at defaults.  It is highly recommended that you edit the configuration.py to your liking.  Otherwise, just re-run the script to use the defaults.")
@@ -1296,6 +1300,7 @@ max_scenes = 0
 config = config_class()
 
 def main():
+    logging.basicConfig(level=logging.DEBUG)
     try:
         global my_stash
         global max_scenes
@@ -1311,7 +1316,7 @@ def main():
         else:
             query = ' '.join(parseArgs())
 
-        if config.debug_mode: logging.basicConfig(level=logging.DEBUG)
+        if not config.debug_mode: logging.getLogger().setLevel("WARNING")
 
         if config.use_https:
             server = 'https://'+str(config.server_ip)+':'+str(config.server_port)
@@ -1342,7 +1347,7 @@ def main():
                 if tag:
                     required_tag_ids.append(tag["id"])
                 else:
-                    logging.error("Did not find tag in Stash: "+tag_name)
+                    logging.error("Did not find tag in Stash: "+tag_name, exc_info=config.debug_mode)
             findScenes_params['scene_filter'] =  {'tags': { 'modifier':'INCLUDES', 'value': [*required_tag_ids]}}
             scenes_with_tags = my_stash.findScenes(**findScenes_params)
             scenes = scenes_with_tags
@@ -1368,7 +1373,7 @@ def main():
         • Checked to make sure you're running the "development" branch of Stash, not "latest"?
         • Checked that you can connect to Stash at the same IP and port listed in your configuration.py?
         If you've check both of these, run the script again with the --debug flag.  Then post the output of that in the Discord and hopefully someone can help.
-        """)
+        """, exc_info=config.debug_mode)
 
 if __name__ == "__main__":
     main()
