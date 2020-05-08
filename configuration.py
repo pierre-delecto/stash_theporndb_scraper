@@ -1,15 +1,16 @@
 #Server configuration
 use_https = True # Set to false for HTTP
-server_ip= "<IP_ADDRESS>"
-server_port = "<PORT>"
-username="<USERNAME>"
-password="<PASSWORD>"
+server_ip= "<IP_ADDRESS>"  #Don't include the '<' or '>'
+server_port = "<PORT>" #Don't include the '<' or '>'
+username="<USERNAME>" #Don't include the '<' or '>'
+password="<PASSWORD>" #Don't include the '<' or '>'
 
 # Configuration options
 scrape_tag= "scraped_from_theporndb"  #Tag to be added to scraped scenes.  Set to None to disable
 disambiguate_only = False # Set to True to run script only on scenes tagged due to ambiguous scraping. Useful for doing manual disambgiuation.  Must set ambiguous_tag for this to work
 verify_aliases_only = False # Set to True to scrape only scenes that were skipped due to unconfirmed aliases - set confirm_questionable_aliases to True before using
 rescrape_scenes= True # If False, script will not rescrape scenes previously scraped successfully.  Must set scrape_tag for this to work
+debug_mode = False
 
 #Set what fields we scrape
 set_details = True
