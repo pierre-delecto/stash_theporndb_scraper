@@ -1,5 +1,5 @@
 #Server configuration
-use_https = True # Set to false for HTTP
+use_https = True # Set to False for HTTP
 server_ip= "<IP_ADDRESS>"  #Don't include the '<' or '>'
 server_port = "<PORT>" #Don't include the '<' or '>'
 username="<USERNAME>" #Don't include the '<' or '>'
