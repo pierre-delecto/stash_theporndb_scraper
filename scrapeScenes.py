@@ -8,6 +8,7 @@ import base64
 import math
 import logging
 import argparse
+import traceback
 from datetime import datetime
 from io import BytesIO
 from urllib.parse import quote
@@ -1143,6 +1144,9 @@ class config_class:
             else:
                 logging.error("No configuration found.  Exiting.")
                 sys.exit()
+        except NameError as err:
+            logging.error("Invalid configuration.py.  Make sure you use 'True' and 'False' (capitalized)", exc_info=config_class.debug_mode)
+            sys.exit()
             
     def createConfig(self):        
         self.server_ip = input("What's your Stash server's IP address? (no port please):")
