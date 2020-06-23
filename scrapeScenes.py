@@ -69,7 +69,7 @@ class stash_interface:
     ignore_ssl_warnings = ""
     http_auth_type = ""
     auth_token = ""
-    min_buildtime = datetime(2020, 4, 1) 
+    min_buildtime = datetime(2020, 6, 22) 
     
     headers = {
         "Accept-Encoding": "gzip, deflate, br",
@@ -457,19 +457,27 @@ class stash_interface:
         result = self.callGraphQL(query, variables)
         return result["data"]["performerUpdate"]
 
+    
     def scrapePerformerFreeones(self, name):
-        query = """
-    {
-        scrapeFreeones(performer_name: \""""+name+"""\")
-        { url twitter instagram birthdate ethnicity country eye_color height measurements fake_tits career_length tattoos piercings aliases }
-
-    }
-    """
+        query = """   
+        {
+        scrapePerformerList(scraper_id:"builtin_freeones", query:\""""+name+"""\")
+        { name url twitter instagram birthdate ethnicity country eye_color height measurements fake_tits career_length tattoos piercings aliases }
+        }"""
         result = self.callGraphQL(query)
-        if keyIsSet(result['data'], ['scrapeFreeones', 'aliases']):
-            result["data"]["scrapeFreeones"]['aliases'] = [alias.strip() for alias in result["data"]["scrapeFreeones"]['aliases'].split(',')]
+
+        if len(result['data']["scrapePerformerList"])!=0:
+            query = """   
+            query ScrapePerformer($scraped_performer: ScrapedPerformerInput!){
+                scrapePerformer(scraper_id:"builtin_freeones", scraped_performer: $scraped_performer)
+                { url twitter instagram birthdate ethnicity country eye_color height measurements fake_tits career_length tattoos piercings aliases }
+            }"""
+            variables = {'scraped_performer': result['data']['scrapePerformerList'][0]}
+            result = self.callGraphQL(query, variables)
+            if keyIsSet(result['data'], ['scrapePerformer', 'aliases']):
+                result["data"]["scrapePerformer"]['aliases'] = [alias.strip() for alias in result["data"]["scrapePerformer"]['aliases'].split(',')]
             
-        return result["data"]["scrapeFreeones"]
+        return result["data"]["scrapePerformer"]
         
     def __getPerformerByName(self, name, check_aliases = False):  # A private function that allows disabling of checking for aliases
         
