@@ -1129,6 +1129,7 @@ class config_class:
     compact_studio_names = False # If true, this will remove spaces from studio names added from ThePornDB
     ignore_ssl_warnings = False # Set to true if your Stash uses SSL w/ a self-signed cert
     trust_tpbd_aliases = False #Trust TPBDs aliases without double checking
+    proxies={} # Leave empty or specify proxy like this: {'http':'http://user:pass@10.10.10.10:8000','https':'https://user:pass@10.10.10.10:8000'}
 
     def loadConfig(self):
         try:  # Try to load configuration.py values
@@ -1214,7 +1215,9 @@ include_performers_in_title = True #If true, performers will be added to the beg
 clean_filename = True #If True, will try to clean up filenames before attempting scrape. Probably unnecessary, as ThePornDB already does this
 compact_studio_names = False # If True, this will remove spaces from studio names added from ThePornDB
 ignore_ssl_warnings=True # Set to True if your Stash uses SSL w/ a self-signed cert
-trust_tpbd_aliases = False #Trust TPBDs aliases without double checking""".format(server_ip, server_port, username, password, use_https))
+trust_tpbd_aliases = False #Trust TPBDs aliases without double checking
+proxies={} # Leave empty or specify proxy like this: {'http':'http://user:pass@10.10.10.10:8000','https':'https://user:pass@10.10.10.10:8000'}
+""".format(server_ip, server_port, username, password, use_https))
         f.close()
         print("Configuration file created.  All values are currently at defaults.  It is highly recommended that you edit the configuration.py to your liking.  Otherwise, just re-run the script to use the defaults.")
         sys.exit()
