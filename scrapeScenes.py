@@ -341,12 +341,12 @@ class stash_interface:
 
     def getPerformerImage(self, url):  #UNTESTED
         if self.http_auth_type == "basic":
-            return base64.b64encode(requests.get(url, auth=requests.auth.HTTPBasicAuth(self.username, self.password), 
+            return base64.b64encode(requests.get(url,proxies=config.proxies, auth=requests.auth.HTTPBasicAuth(self.username, self.password), 
                                 verify= not self.ignore_ssl_warnings).content)
         elif self.http_auth_type == "jwt":
-            return base64.b64encode(requests.get(url, headers=self.headers, cookies={'session':self.auth_token}, verify= not self.ignore_ssl_warnings).content)
+            return base64.b64encode(requests.get(url,proxies=config.proxies, headers=self.headers, cookies={'session':self.auth_token}, verify= not self.ignore_ssl_warnings).content)
         else:
-            return base64.b64encode(requests.get(url, verify= not self.ignore_ssl_warnings).content)        
+            return base64.b64encode(requests.get(url,proxies=config.proxies, verify= not self.ignore_ssl_warnings).content)        
         
     def addStudio(self, studio_data):
         query = """
@@ -598,7 +598,7 @@ def createStashStudioData(tpbd_studio):  # Creates stash-compliant data from raw
         stash_studio["name"] = tpbd_studio["name"]
     stash_studio["url"] = tpbd_studio["url"]
     if tpbd_studio["logo"] is not None and "default.png" not in tpbd_studio["logo"]:
-        image = requests.get(tpbd_studio["logo"]).content
+        image = requests.get(tpbd_studio["logo"],proxies=config.proxies).content
         image_b64 = base64.b64encode(image)
         stash_studio["image"] = image_b64.decode(ENCODING)
 
@@ -606,7 +606,7 @@ def createStashStudioData(tpbd_studio):  # Creates stash-compliant data from raw
 
 def getJpegImage(image_url):
     try:
-        r = requests.get(image_url, stream=True)
+        r = requests.get(image_url, stream=True,proxies=config.proxies)
         r.raw.decode_content = True # handle spurious Content-Encoding
         image = Image.open(r.raw)
         if image.format:
@@ -622,14 +622,14 @@ def getJpegImage(image_url):
 
 def getBabepediaImage(name):
     url = "https://www.babepedia.com/pics/"+urllib.parse.quote(name)+".jpg"
-    if requests.get(url):
+    if requests.get(url,proxies=config.proxies):
         return getJpegImage(url)
     return None
 
 def getTpbdImage(name):
     url = "https://metadataapi.net/api/performers?q="+urllib.parse.quote(name)
-    if len(requests.get(url).json()["data"])==1: #If we only have 1 hit
-        raw_data = requests.get(url).json()["data"][0]
+    if len(requests.get(url,proxies=config.proxies).json()["data"])==1: #If we only have 1 hit
+        raw_data = requests.get(url,proxies=config.proxies).json()["data"][0]
         image_url = raw_data["image"]
         if not "default.png" in image_url:
             image = getJpegImage(image_url)
@@ -677,11 +677,11 @@ def getPerformer(name):
     search_url = "https://metadataapi.net/api/performers?q="+urllib.parse.quote(name)
     data_url_prefix = "https://metadataapi.net/api/performers/"
     try:
-        result = requests.get(search_url).json()
+        result = requests.get(search_url,proxies=config.proxies).json()
         tpbd_error_count = 0
         if result.get("data", [{}])[0].get("id", None):
             performer_id = result["data"][0]["id"]
-            return requests.get(data_url_prefix+performer_id).json()["data"]
+            return requests.get(data_url_prefix+performer_id,proxies=config.proxies).json()["data"]
         else:
             return None
     except ValueError:
@@ -699,7 +699,7 @@ def sceneQuery(query, parse_function = True):  # Scrapes ThePornDB based on quer
     else:
         url = "https://metadataapi.net/api/scenes?q="+urllib.parse.quote(query)
     try:
-        result = requests.get(url).json()["data"]
+        result = requests.get(url,proxies=config.proxies).json()["data"]
         tpbd_error_count = 0
         return result
     except ValueError:
