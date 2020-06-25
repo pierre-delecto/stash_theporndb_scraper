@@ -435,6 +435,27 @@ class stash_interface:
         except Exception as e:
             logging.error("Error in deleting performer", exc_info=self.debug_mode)
             logging.error(variables)
+    
+    def deleteScene(self, input_data, delete_file = False):  
+        scene_data = {}
+        scene_data["id"] = input_data["id"]
+        scene_data['delete_file']=delete_file
+        scene_data['delete_generated']=True
+        
+        query = """
+        mutation sceneDestroy($input:SceneDestroyInput!) {
+          sceneDestroy(input: $input)
+        }
+        """
+        variables = {'input': scene_data}
+
+        try:
+            result = self.callGraphQL(query, variables)
+            self.populateTags()
+            return result["data"]["sceneDestroy"]
+        except Exception as e:
+            logging.error("Error in deleting scene", exc_info=self.debug_mode)
+            logging.error(variables)
 
     def updatePerformer(self, performer_data):
         update_data = performer_data
@@ -465,19 +486,23 @@ class stash_interface:
         { name url twitter instagram birthdate ethnicity country eye_color height measurements fake_tits career_length tattoos piercings aliases }
         }"""
         result = self.callGraphQL(query)
-
-        if len(result['data']["scrapePerformerList"])!=0:
-            query = """   
-            query ScrapePerformer($scraped_performer: ScrapedPerformerInput!){
-                scrapePerformer(scraper_id:"builtin_freeones", scraped_performer: $scraped_performer)
-                { url twitter instagram birthdate ethnicity country eye_color height measurements fake_tits career_length tattoos piercings aliases }
-            }"""
-            variables = {'scraped_performer': result['data']['scrapePerformerList'][0]}
-            result = self.callGraphQL(query, variables)
-            if keyIsSet(result['data'], ['scrapePerformer', 'aliases']):
-                result["data"]["scrapePerformer"]['aliases'] = [alias.strip() for alias in result["data"]["scrapePerformer"]['aliases'].split(',')]
-            
-        return result["data"]["scrapePerformer"]
+        try:
+            if len(result['data']["scrapePerformerList"])!=0:
+                query = """   
+                query ScrapePerformer($scraped_performer: ScrapedPerformerInput!){
+                    scrapePerformer(scraper_id:"builtin_freeones", scraped_performer: $scraped_performer)
+                    { url twitter instagram birthdate ethnicity country eye_color height measurements fake_tits career_length tattoos piercings aliases }
+                }"""
+                variables = {'scraped_performer': result['data']['scrapePerformerList'][0]}
+                result = self.callGraphQL(query, variables)
+                if keyIsSet(result['data'], ['scrapePerformer', 'aliases']):
+                    result["data"]["scrapePerformer"]['aliases'] = [alias.strip() for alias in result["data"]["scrapePerformer"]['aliases'].split(',')]
+                return result["data"]["scrapePerformer"]
+            else:
+                return None
+        except Exception as e:
+            logging.error("Error in scraping Freeones", exc_info=self.debug_mode)
+            logging.error(variables)
         
     def __getPerformerByName(self, name, check_aliases = False):  # A private function that allows disabling of checking for aliases
         
