@@ -829,7 +829,7 @@ def getQuery(scene):
             scrape_query = dirs.pop()+" "+scrape_query
     else:
         scrape_query = scene['title']
-    return scrape_query
+    return '' if scrape_query is None else str(scrape_query)
 
 def scrapeScene(scene):
     global my_stash
