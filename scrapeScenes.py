@@ -1012,7 +1012,7 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
                     performer_names.append(performer_name)  #Add to list of performers in scene
                 elif keyIsSet(scraped_performer, ['parent','name']): #If site name does not match someone in Stash and TPBD has a linked parent
                     if  (  #Test for when we should automatically accept the parent name
-                        areAliases(scraped_performer['name'], scraped_performer['parent']['name'], scraped_studio['name']) or #Parent performer seems to be a valid alias to site performer
+                        areAliases(scraped_performer['name'], scraped_performer['parent']['name'], scraped_scene['site']['name'].replace(' ','') if config.compact_studio_names else scraped_scene['site']['name']) or #Parent performer seems to be a valid alias to site performer
                         " " not in scraped_performer['name'] or #Single name, so we just trust TPBD
                         config.trust_tpbd_aliases #Flag says to just trust TPBD
                     ):  
