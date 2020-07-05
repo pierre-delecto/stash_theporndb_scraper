@@ -47,3 +47,4 @@ include_performers_in_title = True #If True, performers will be added at the beg
 clean_filename = True #If True, will try to clean up filenames before attempting scrape. Often unnecessary, as ThePornDB already does this
 compact_studio_names = True # If True, this will remove spaces from studio names added from ThePornDB
 ignore_ssl_warnings= True # Set to True if your Stash uses SSL w/ a self-signed cert
+proxies={} # Leave empty or specify proxy like this: {'http':'http://user:pass@10.10.10.10:8000','https':'https://user:pass@10.10.10.10:8000'}
