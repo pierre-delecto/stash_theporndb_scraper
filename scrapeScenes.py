@@ -10,6 +10,7 @@ import logging
 import argparse
 import traceback
 import time
+import copy
 from io import BytesIO
 from urllib.parse import quote
 from PIL import Image
@@ -903,6 +904,7 @@ def main(args):
 
         #Set our filter to require any required_tags
         if len(required_tags)>0:
+            findScenes_params_incl = copy.deepcopy(findScenes_params)
             required_tag_ids = []
             for tag_name in required_tags:
                 tag = my_stash.getTagByName(tag_name, False)
@@ -910,13 +912,14 @@ def main(args):
                     required_tag_ids.append(tag["id"])
                 else:
                     logging.error("Did not find tag in Stash: "+tag_name, exc_info=config.debug_mode)
-            findScenes_params['scene_filter'] =  {'tags': { 'modifier':'INCLUDES', 'value': [*required_tag_ids]}}
+            findScenes_params_incl['scene_filter'] =  {'tags': { 'modifier':'INCLUDES', 'value': [*required_tag_ids]}}
             if len(excluded_tags)>0: print("Getting Scenes With Required Tags")
-            scenes_with_tags = my_stash.findScenes(**findScenes_params)
+            scenes_with_tags = my_stash.findScenes(**findScenes_params_incl)
             scenes = scenes_with_tags
 
         #Set our filter to exclude any excluded_tags
         if len(excluded_tags)>0:
+            findScenes_params_excl = copy.deepcopy(findScenes_params)
             excluded_tag_ids = []
             for tag_name in excluded_tags:
                 tag = my_stash.getTagByName(tag_name, False)
@@ -924,9 +927,9 @@ def main(args):
                     excluded_tag_ids.append(tag["id"])
                 else:
                     logging.error("Did not find tag in Stash: "+tag_name, exc_info=config.debug_mode)
-            findScenes_params['scene_filter'] =  {'tags': { 'modifier':'EXCLUDES', 'value': [*excluded_tag_ids]}}
+            findScenes_params_excl['scene_filter'] =  {'tags': { 'modifier':'EXCLUDES', 'value': [*excluded_tag_ids]}}
             if len(required_tags)>0: print("Getting Scenes Without Excluded Tags")
-            scenes_without_tags = my_stash.findScenes(**findScenes_params)
+            scenes_without_tags = my_stash.findScenes(**findScenes_params_excl)
             scenes = scenes_without_tags
         
         if len(excluded_tags)==0 and len(required_tags)==0:  #If no tags are required or excluded
