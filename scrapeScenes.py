@@ -704,7 +704,7 @@ def getPerformer(name):
     try:
         result = requests.get(search_url,proxies=config.proxies).json()
         tpbd_error_count = 0
-        if  next(iter(result.get("data", [{}])), [{}]).get("id", None):
+        if  next(iter(result.get("data", [{}])), {}).get("id", None):
             performer_id = result["data"][0]["id"]
             return requests.get(data_url_prefix+performer_id,proxies=config.proxies).json()["data"]
         else:
