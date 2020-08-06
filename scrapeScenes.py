@@ -179,7 +179,7 @@ def getPerformer(name):
     try:
         result = requests.get(search_url,proxies=config.proxies).json()
         tpbd_error_count = 0
-        if  next(iter(result.get("data", [{}])), [{}]).get("id", None):
+        if  next(iter(result.get("data", [{}])), {}).get("id", None):
             performer_id = result["data"][0]["id"]
             return requests.get(data_url_prefix+performer_id,proxies=config.proxies).json()["data"]
         else:
@@ -427,8 +427,12 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
             ambiguous_tag_id = my_stash.getTagByName(config.ambiguous_tag)['id']
             if ambiguous_tag_id in scene_data["tag_ids"]: 
                 scene_data["tag_ids"].remove(ambiguous_tag_id) #Remove ambiguous tag; it will be readded later if the scene is still ambiguous
+        if config.unmatched_tag: 
+            unmatched_tag_id = my_stash.getTagByName(config.unmatched_tag)['id']
+            if unmatched_tag_id in scene_data["tag_ids"]: 
+                scene_data["tag_ids"].remove(unmatched_tag_id) #Remove unmatched tag
         if my_stash.getTagByName(config.unconfirmed_alias)["id"] in scene_data["tag_ids"]: 
-            scene_data["tag_ids"].remove(my_stash.getTagByName(config.unconfirmed_alias)["id"]) #Remove ambiguous tag; it will be readded later if the scene is still ambiguous
+            scene_data["tag_ids"].remove(my_stash.getTagByName(config.unconfirmed_alias)["id"]) #Remove unconfirmed alias tag; it will be readded later if needed
 
         if config.set_details: scene_data["details"] = scraped_scene["description"] #Add details
         if config.set_date: scene_data["date"] = scraped_scene["date"]  #Add date
@@ -644,7 +648,7 @@ class config_class:
                 if (key == "server_ip" or key == "server_port") and ("<" in value or ">" in value):
                     logging.warning("Please remove '<' and '>' from your server_ip and server_port lines in configuration.py")
                     sys.exit()
-                if isinstance(value, type(vars(config_class).get(key, None))):
+                if value is None or isinstance(value, type(vars(config_class).get(key, None))):
                     vars(self)[key]=value
                 else:
                     logging.warning("Invalid configuration parameter: "+key, exc_info=config_class.debug_mode)
