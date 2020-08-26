@@ -149,9 +149,11 @@ class stash_interface:
                 sys.exit()
 
     def waitForIdle(self):
-        if self.getStatus()!="Idle":  #Check that the DB is not locked
-            print("Stash is busy.  Retrying in 10 seconds.")
+        jobStatus = self.getStatus()
+        if jobStatus['status']!="Idle":  #Check that the DB is not locked
+            print("Stash is busy.  Retrying in 10 seconds.  Status:"+jobStatus['status']+"; Progress:"+'{:.0%}'.format(jobStatus['progress']))
             time.sleep(10)
+            self.waitForIdle()
     
     def getStatus(self): 
         query = """
@@ -164,7 +166,7 @@ class stash_interface:
     }
     """
         result = self.callGraphQL(query)
-        return result["data"]["jobStatus"]["status"]
+        return result["data"]["jobStatus"]
 
     def scan(self, useFileMetadata = False): 
         if useFileMetadata:
@@ -203,6 +205,23 @@ class stash_interface:
         query = """
             mutation metadataGenerate($input:GenerateMetadataInput!) {
                 metadataGenerate(input: $input)
+            }
+        """
+        result = self.callGraphQL(query, variables)
+
+    def autoTag(self, autoTagInput= None):
+        if autoTagInput:
+            variables = autoTagInput
+        else:
+            variables = {'input': { 
+                'performers': ['*'],
+                'studios': ['*'],
+                'tags': ['*']
+                }}
+
+        query = """
+            mutation metadataAutoTag($input:AutoTagMetadataInput!) {
+                metadataAutoTag(input: $input)
             }
         """
         result = self.callGraphQL(query, variables)
@@ -305,6 +324,7 @@ class stash_interface:
                 scenes{
                   id
                   title
+                  oshash
                   details
                   url
                   date
@@ -723,6 +743,13 @@ def parseArgs(args):
                        '--wait',
                        action='store_true',
                        help='wait for idle before completing')
+    my_parser.add_argument('-at',
+                       '--auto_tag',
+                       nargs='?',
+                       const='pst',
+                       action='store',
+                       help='auto tag; pass nothing for performs, studios, and tags; pass \'p\' for performers, \'s\' for studios, \'t\' for tags, or any combination;  example: \'-at ps\' tags performers and studios')
+    
     # Execute the parse_args() method to collect our args
     parsed_args = my_parser.parse_args(args)
     #Set variables accordingly
@@ -760,6 +787,18 @@ def main(args):
             print("Cleaning...")
             my_stash.waitForIdle()
             my_stash.clean()
+        if args.auto_tag:
+            print("Auto Tagging...")
+            variables = {'input': { 
+                'performers': [],
+                'studios': [],
+                'tags': []
+                }}
+            if 'p' in args.auto_tag: variables["input"]['performers'] = ['*']
+            if 's' in args.auto_tag: variables["input"]['studios'] = ['*']
+            if 't' in args.auto_tag: variables["input"]['tags'] = ['*']
+            my_stash.waitForIdle()
+            my_stash.autoTag()
         if args.wait:
             my_stash.waitForIdle()
         print("Success! Finished.")

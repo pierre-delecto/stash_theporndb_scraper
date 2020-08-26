@@ -191,6 +191,19 @@ def getPerformer(name):
             logging.error("ThePornDB seems to be down.  Exiting.")
             sys.exit()
            
+def sceneHashQuery(oshash): # Scrapes ThePornDB based on oshash.  Returns an array of scenes as results, or None
+    global tpbd_error_count
+    url = "https://metadataapi.net/api/scenes?hash="+urllib.parse.quote(oshash)    
+    try:
+        result = requests.get(url,proxies=config.proxies).json()["data"]
+        tpbd_error_count = 0
+        return result
+    except ValueError:
+        logging.error("Error communicating with ThePornDB")        
+        tpbd_error_count = tpbd_error_count + 1
+        if tpbd_error_count > 3:
+            logging.error("ThePornDB seems to be down.  Exiting.")
+            sys.exit()
 
 def sceneQuery(query, parse_function = True):  # Scrapes ThePornDB based on query.  Returns an array of scenes as results, or None
     global tpbd_error_count
@@ -312,9 +325,12 @@ def scrapeScene(scene):
     try:
         scene_data = my_stash.createSceneUpdateData(scene)  # Start with our current data as a template
         scrape_query = ""
-        scrape_query = getQuery(scene)
-        scraped_data = sceneQuery(scrape_query)
-
+        scraped_data = None
+        #if config.use_oshash and scene['oshash']: 
+        #    scraped_data = sceneHashQuery(scene['oshash'])
+        if not scraped_data:
+            scrape_query = getQuery(scene)
+            scraped_data = sceneQuery(scrape_query)
         if not scraped_data:
             scraped_data = sceneQuery(scrape_query, False)
 
@@ -490,7 +506,7 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
                 add_this_performer = False
                 if stash_performer:  
                     performer_id = stash_performer["id"] #If performer already exists, use that
-                    performer_names.append(performer_name)  #Add to list of performers in scene
+                    if config.male_performers_in_title or not not_female: performer_names.append(performer_name)  #Add to list of performers in scene
                 elif keyIsSet(scraped_performer, ['parent','name']): #If site name does not match someone in Stash and TPBD has a linked parent
                     if  (  #Test for when we should automatically accept the parent name
                         areAliases(scraped_performer['name'], scraped_performer['parent']['name'], scraped_scene['site']['name'].replace(' ','') if config.compact_studio_names else scraped_scene['site']['name']) or #Parent performer seems to be a valid alias to site performer
@@ -501,7 +517,7 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
                         stash_performer = my_stash.getPerformerByName(performer_name) 
                         if stash_performer:  
                             performer_id = stash_performer["id"] #If performer already exists, use that
-                            performer_names.append(performer_name)  #Add to list of performers in scene
+                            if config.male_performers_in_title or not not_female: performer_names.append(performer_name)  #Add to list of performers in scene
                         else:
                             add_this_performer = True
                     else: #We can't automatically trust the parent name.  Ask for manual confirmation if flag is set.
@@ -512,7 +528,7 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
                                 stash_performer = my_stash.getPerformerByName(performer_name) 
                                 if stash_performer:  
                                     performer_id = stash_performer["id"] #If performer already exists, use that
-                                    performer_names.append(performer_name)  #Add to list of performers in scene
+                                    if config.male_performers_in_title or not not_female: performer_names.append(performer_name)  #Add to list of performers in scene
                                     stash_performer.update(createStashPerformerData(confirmed_performer))
                                     my_stash.updatePerformer(stash_performer) ##Update the performer to capture new aliases if needed
                                 else:
@@ -540,7 +556,7 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
                 if add_this_performer and config.add_performers:
                     print("Did not find " + performer_name + " in Stash.  Adding performer.")
                     performer_id = addPerformer(scraped_performer)
-                    performer_names.append(performer_name)
+                    if config.male_performers_in_title or not not_female: performer_names.append(performer_name)
 
                 if performer_id:  # If we have a valid ID, add performer to Scene
                     scraped_performer_ids.append(performer_id)
@@ -635,9 +651,11 @@ class config_class:
     scrape_performers_freeones = True #If True, will try to scrape newly added performers with the freeones scraper
     get_images_babepedia = True #If True, will try to grab an image from babepedia before the one from ThePornDB
     include_performers_in_title = True #If True, performers will be added at the beggining of the title
+    male_performers_in_title = False # If True, male performers and included in the title
     clean_filename = True #If True, will try to clean up filenames before attempting scrape. Often unnecessary, as ThePornDB already does this
     compact_studio_names = True # If True, this will remove spaces from studio names added from ThePornDB
     proxies={} # Leave empty or specify proxy like this: {'http':'http://user:pass@10.10.10.10:8000','https':'https://user:pass@10.10.10.10:8000'}
+    #use_oshash = False # Set to True to use oshash values to query NOT YET SUPPORTED
 
     def loadConfig(self):
         try:  # Try to load configuration.py values
@@ -726,9 +744,11 @@ only_add_female_performers = True  #If True, only female performers are added (n
 scrape_performers_freeones = True #If True, will try to scrape newly added performers with the freeones scraper
 get_images_babepedia = True #If True, will try to grab an image from babepedia before the one from ThePornDB
 include_performers_in_title = True #If True, performers will be added at the beggining of the title
+male_performers_in_title = False # If True, male performers and included in the title
 clean_filename = True #If True, will try to clean up filenames before attempting scrape. Often unnecessary, as ThePornDB already does this
 compact_studio_names = True # If True, this will remove spaces from studio names added from ThePornDB
 proxies={} # Leave empty or specify proxy like this: {'http':'http://user:pass@10.10.10.10:8000','https':'https://user:pass@10.10.10.10:8000'}
+# use_oshash = False # Set to True to use oshash values to query NOT YET SUPPORTED
 """.format(server_ip, server_port, username, password, use_https))
         f.close()
         print("Configuration file created.  All values are currently at defaults.  It is highly recommended that you edit the configuration.py to your liking.  Otherwise, just re-run the script to use the defaults.")
