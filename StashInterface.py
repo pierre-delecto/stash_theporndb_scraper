@@ -195,7 +195,6 @@ class stash_interface:
             variables = {'input': { 
                 'sprites': True,
                 'previews': True,
-                'previewPreset': 'slow',
                 'imagePreviews': False,
                 'markers': True,
                 'transcodes': False,
