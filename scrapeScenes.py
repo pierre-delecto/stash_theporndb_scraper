@@ -106,10 +106,16 @@ def createStashStudioData(tpbd_studio):  # Creates stash-compliant data from raw
 
 def getJpegImage(image_url):
     try:
+        
         r = requests.get(image_url, stream=True,proxies=config.proxies)
         r.raw.decode_content = True # handle spurious Content-Encoding
         image = Image.open(r.raw)
         if image.format:
+            if image.mode in ('RGBA', 'LA'):
+                fill_color = 'black'  # your background
+                background = Image.new(image.mode[:-1], image.size, fill_color)
+                background.paste(image, image.split()[-1])
+                image = background
             buffered = BytesIO()
             image.save(buffered, format="JPEG")
             image = buffered.getvalue()
@@ -208,9 +214,9 @@ def sceneHashQuery(oshash): # Scrapes ThePornDB based on oshash.  Returns an arr
 def sceneQuery(query, parse_function = True):  # Scrapes ThePornDB based on query.  Returns an array of scenes as results, or None
     global tpbd_error_count
     if parse_function:
-        url = "https://metadataapi.net/api/scenes?parse="+urllib.parse.quote(query)    
+        url = "https://api.metadataapi.net/api/scenes?parse="+urllib.parse.quote(query)    
     else:
-        url = "https://metadataapi.net/api/scenes?q="+urllib.parse.quote(query)
+        url = "https://api.metadataapi.net/api/scenes?q="+urllib.parse.quote(query)
     try:
         result = requests.get(url,proxies=config.proxies).json()["data"]
         tpbd_error_count = 0
