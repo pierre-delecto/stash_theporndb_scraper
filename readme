@@ -2,7 +2,7 @@ This is a python script intended to run from a command line to scrape informatio
 
 Currently, the script supports setting titles, performers, tags, studios, details, and date.  All fields are optional and can be disabled via config options.  Current title, studio, details, and date are overwritten with new data. Current performers and tags are maintained with new results added. If a new performer/studio/tag is found that's not currently in Stash, the script can optionally add the performer/studio/tag using data from ThePornDB.  It can also optionally (via config options) scrape FreeOnes for performer data, and try to pull an image from Babepedia.
 
-Usage:  Download the script and install the requirements (pip install -r requirements.txt).  Modify the configuration.py to include the URL of your Stash endpoint.  Be sure to specify http or https.  Also include your username and password, if using.  Set any configuration parameters you'd like, which are explained in the script.  
+Usage:  Download the script and install the requirements (pip install -r requirements.txt).  Rename SAMPLE_configuration.py to configuration.py.  Modify the configuration.py to include the URL of your Stash endpoint.  Be sure to specify http or https.  Also include your username and password, if using.  Set any configuration parameters you'd like, which are explained in the script.  
 
 Then, run the script (python scrapeScenes.py).  If run without parameters, the script scrapes all Stash scenes using the options from configuration.py.  Add the -h flag to see other supported command line options.
 
