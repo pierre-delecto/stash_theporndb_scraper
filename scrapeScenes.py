@@ -180,8 +180,8 @@ def getPerformerImageB64(name):  #Searches Babepedia and TPBD for a performer im
 
 def getPerformer(name):
     global tpbd_error_count
-    search_url = "https://metadataapi.net/api/performers?q="+urllib.parse.quote(name)
-    data_url_prefix = "https://metadataapi.net/api/performers/"
+    search_url = "https://api.metadataapi.net/api/performers?q="+urllib.parse.quote(name)
+    data_url_prefix = "https://api.metadataapi.net/api/performers/"
     try:
         result = requests.get(search_url,proxies=config.proxies).json()
         tpbd_error_count = 0
@@ -199,7 +199,7 @@ def getPerformer(name):
            
 def sceneHashQuery(oshash): # Scrapes ThePornDB based on oshash.  Returns an array of scenes as results, or None
     global tpbd_error_count
-    url = "https://metadataapi.net/api/scenes?hash="+urllib.parse.quote(oshash)    
+    url = "https://api.metadataapi.net/api/scenes?hash="+urllib.parse.quote(oshash)    
     try:
         result = requests.get(url,proxies=config.proxies).json()["data"]
         tpbd_error_count = 0
