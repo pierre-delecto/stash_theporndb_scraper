@@ -171,10 +171,11 @@ class stash_interface:
     def scan(self, useFileMetadata = False, path=False): 
         variables = {
             'input': {
-                'useFileMetadata': useFileMetadata,
-                'paths': path
+                'useFileMetadata': useFileMetadata
                 }
             }
+        if path:
+            variables['input']['paths'] = path
         query = """
         mutation metadataScan($input:ScanMetadataInput!) {
             metadataScan(input: $input)
