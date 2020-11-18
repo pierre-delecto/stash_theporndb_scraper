@@ -168,11 +168,14 @@ class stash_interface:
         result = self.callGraphQL(query)
         return result["data"]["jobStatus"]
 
-    def scan(self, useFileMetadata = False): 
-        if useFileMetadata:
-            variables = {'input': {'useFileMetadata': True}}
-        else:
-            variables = {'input': {'useFileMetadata': False}}
+    def scan(self, useFileMetadata = False, path=False): 
+        variables = {
+            'input': {
+                'useFileMetadata': useFileMetadata
+                }
+            }
+        if path:
+            variables['input']['paths'] = path
         query = """
         mutation metadataScan($input:ScanMetadataInput!) {
             metadataScan(input: $input)
@@ -197,8 +200,7 @@ class stash_interface:
                 'previews': True,
                 'imagePreviews': False,
                 'markers': True,
-                'transcodes': False,
-                'thumbnails': False
+                'transcodes': False
                 }}
         
         query = """
@@ -730,6 +732,11 @@ def parseArgs(args):
                        '--scan',
                        action='store_true',
                        help='scan for new content')
+    my_parser.add_argument('-p',
+                       '--path',
+                       nargs='+',
+                       action='store',
+                       help='path for scans')
     my_parser.add_argument('-c',
                        '--clean',
                        action='store_true',
@@ -775,9 +782,14 @@ def main(args):
         
         my_stash = stash_interface(server, config.username, config.password, config.ignore_ssl_warnings)
         if args.scan: 
-            print("Scanning...")
-            my_stash.waitForIdle()
-            my_stash.scan()
+            if args.path:
+                print("Scanning {}".format(','.join(args.path)))
+                my_stash.waitForIdle()
+                my_stash.scan(path=args.path)
+            else:
+                print("Scanning...")
+                my_stash.waitForIdle()
+                my_stash.scan()
         if args.generate: 
             print("Generating...")
             my_stash.waitForIdle()
