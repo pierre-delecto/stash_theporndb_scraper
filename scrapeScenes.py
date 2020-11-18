@@ -9,11 +9,14 @@ import math
 import logging
 import argparse
 import traceback
-from datetime import datetime
+import time
+import copy
 from io import BytesIO
 from urllib.parse import quote
 from PIL import Image
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
+
+import StashInterface
 
 ###########################################################
 #CONFIGURATION OPTIONS HAVE BEEN MOVED TO CONFIGURATION.PY#
@@ -27,7 +30,7 @@ def lreplace(pattern, sub, string):
     return re.sub('^%s' % pattern, sub, string)
 
 def scrubFileName(file_name):
-    scrubbedWords = ['MP4-(.+?)$', ' XXX ', '1080p', '720p', 'WMV-(.+?)$', '-UNKNOWN', ' x264-(.+?)$', 'DVDRip','WEBRIP', 'WEB', '\[PRiVATE\]', 'HEVC', 'x265', 'PRT-xpost', '-xpost', '480p', ' SD', ' HD', '\'', '&']
+    scrubbedWords = ['MP4-(.+?)$', ' XXX ', '1080p', '720p', 'WMV-(.+?)$', '-UNKNOWN', ' x264-(.+?)$', 'DVDRip','WEBRIP', 'WEB', '\[PRiVATE\]', 'HEVC', 'x265', 'PRT-xpost', '-xpost', '480p', '2160p', ' SD', ' HD', '\'', '&']
     clean_name = ""
     clean_name = re.sub('\.', ' ', file_name) ##replace periods
     for word in scrubbedWords: ##delete scrubbedWords
@@ -58,535 +61,7 @@ def listToLower(input_list):
             output_list.append(item)
     return output_list
 
-#Stash GraphQL Class
-class stash_interface:
-    performers = []
-    studios = []
-    tags = []
-    server = ""
-    username = ""
-    password = ""
-    ignore_ssl_warnings = ""
-    http_auth_type = ""
-    auth_token = ""
-    min_buildtime = datetime(2020, 6, 22) 
-    
-    headers = {
-        "Accept-Encoding": "gzip, deflate, br",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "Connection": "keep-alive",
-        "DNT": "1"
-        }
-
-    def __init__(self, server_url, user = "", pword = "", ignore_ssl = "", debug = False):
-        self.server = server_url
-        self.username = user
-        self.password = pword
-        self.ignore_ssl_warnings = ignore_ssl
-        if ignore_ssl: requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
-        self.debug_mode = debug
-        self.setAuth()
-        self.checkVersion()
-        self.populatePerformers()
-        self.populateTags()
-        self.populateStudios()
-
-    def setAuth(self):
-        r = requests.get(self.server+"/playground", verify= not self.ignore_ssl_warnings)
-        if len(r.history)>0 and r.history[-1].status_code == 302:
-            self.http_auth_type="jwt"
-            self.jwtAuth()
-        elif r.status_code == 200:
-            self.http_auth_type="none"
-        else:
-            self.http_auth_type="basic"
-        return
-
-    def jwtAuth(self):
-        response = requests.post(self.server+"/login", data = {'username':self.username, 'password':self.password}, verify= not self.ignore_ssl_warnings)
-        self.auth_token=response.cookies.get('session',None)
-        if not self.auth_token:
-            logging.error("Error authenticating with Stash.  Double check your IP, Port, Username, and Password", exc_info=self.debug_mode)
-            sys.exit()
-    #GraphQL Functions    
-    def callGraphQL(self, query, variables = None):
-        return self.__callGraphQL(query, variables)
-
-    def __callGraphQL(self, query, variables, retry = True):
-        graphql_server = self.server+"/graphql"
-        json = {}
-        json['query'] = query
-        if variables:
-            json['variables'] = variables
-        
-        try:
-            if self.http_auth_type == "basic":
-                response = requests.post(graphql_server, json=json, headers=self.headers, auth=(self.username, self.password), verify= not self.ignore_ssl_warnings)
-            elif self.http_auth_type == "jwt":
-                response = requests.post(graphql_server, json=json, headers=self.headers, cookies={'session':self.auth_token}, verify= not self.ignore_ssl_warnings)
-            else:
-                response = requests.post(graphql_server, json=json, headers=self.headers, verify= not self.ignore_ssl_warnings)
-            
-            if response.status_code == 200:
-                result = response.json()
-                if result.get("error", None):
-                    for error in result["error"]["errors"]:
-                        logging.error("GraphQL error:  {}".format(error), exc_info=self.debug_mode)
-                if result.get("data", None):
-                    return result
-            elif retry and response.status_code == 401 and self.http_auth_type == "jwt":
-                self.jwtAuth()
-                return self.__callGraphQL(query, variables, False)
-            else:
-                logging.error("GraphQL query failed to run by returning code of {}. Query: {}.  Variables: {}".format(response.status_code, query, variables), exc_info=self.debug_mode)
-                raise Exception("GraphQL error")
-        except requests.exceptions.SSLError:
-            proceed = input("Caught certificate error trying to talk to Stash. Add ignore_ssl_warnings=True to your configuration.py to ignore permanently. Ignore for now? (yes/no):")
-            if proceed == 'y' or proceed == 'Y' or proceed =='Yes' or proceed =='yes':
-                self.ignore_ssl_warnings =True
-                requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
-                return self.callGraphQL(query, variables)
-            else:
-                print("Exiting.")
-                sys.exit()
-
-    def checkVersion(self):
-        query = """
-    {
-    version{
-        version
-        build_time
-        }
-    }
-    """
-        result = self.callGraphQL(query)
-        self.version_buildtime = datetime.strptime(result["data"]["version"]["build_time"], '%Y-%m-%d %H:%M:%S')
-        if self.version_buildtime < stash_interface.min_buildtime:
-            logging.error("Your Stash version appears too low to use this script.  Please upgrade to the latest \"development\" build and try again.", exc_info=self.debug_mode)
-            sys.exit()
-
-    def populatePerformers(self):  
-        stashPerformers =[]
-        query = """
-    {
-        allPerformers
-      {
-        id
-        name
-        aliases
-        image_path
-      }
-    }
-    """
-        result = self.callGraphQL(query)
-        stashPerformers = result["data"]["allPerformers"]
-        for performer in stashPerformers:
-            if isinstance(performer['aliases'], str): performer['aliases'] = [alias.strip() for alias in performer['aliases'].split(',')] #Convert comma delimited string to list
-        
-        self.performers = stashPerformers
-
-    def populateStudios(self):
-        stashStudios = []
-        query = """
-    {
-        allStudios
-      {
-        id
-        name
-        url
-        image_path
-      }
-    }
-    """ 
-        result = self.callGraphQL(query)
-        self.studios = result["data"]["allStudios"]
-
-    def populateTags(self):
-        stashTags = []
-        query = """
-    {
-        allTags
-      {
-        id
-        name
-      }
-    }
-    """
-        result = self.callGraphQL(query)
-        self.tags = result["data"]["allTags"]  
-
-    def findScenes(self, **kwargs):
-        stashScenes =[]
-        variables = {}
-        max_scenes = kwargs.get("max_scenes", None)
-        accepted_variables = {'filter':'FindFilterType!','scene_filter': 'SceneFilterType!','scene_ids':'[Int!]'}
-
-        variables['filter'] = {} #Add filter to support pages, if necessary
-                
-        #Add accepted variables to our passsed variables
-        for index, (accepted_variable, variable_type) in enumerate(accepted_variables.items()):
-            if accepted_variable in kwargs:
-                variables[accepted_variable] = kwargs[accepted_variable]
-
-        #Set page and per_page, if not set
-        variables['filter'] = variables.get('filter', {})
-        variables['filter']['page'] = variables['filter'].get('page', 1)
-        if max_scenes:
-            variables['filter']['per_page'] = variables['filter'].get('per_page',  min(100, max_scenes))
-        else:
-            variables['filter']['per_page'] = variables['filter'].get('per_page',  100)
-            
-        #Build our query string (e.g., "findScenes(filter:FindFilterType!){" )
-        query_string = "query("+", ".join(":".join(("$"+str(k),accepted_variables[k])) for k,v in variables.items())+'){'
-
-        #Build our findScenes string
-        findScenes_string = "findScenes("+", ".join(":".join((str(k),"$"+str(k))) for k,v in variables.items())+'){'
-
-        try:
-            query = query_string+findScenes_string+"""
-                count
-                scenes{
-                  id
-                  title
-                  details
-                  url
-                  date
-                  rating
-                  path
-                  studio {
-                    id
-                    name
-                    }
-                  gallery
-                    {
-                        id
-                    }
-                  movies
-                    {
-                        movie 
-                        {
-                            id
-                        }
-                    scene_index
-                    }
-                  performers
-                    {
-                        name
-                        id
-                    }
-                  tags
-                    {
-                        name
-                        id
-                    }
-                }
-              }
-            }
-            """
-            result = self.callGraphQL(query, variables)
-
-            stashScenes = result["data"]["findScenes"]["scenes"]
-            if not max_scenes: max_scenes = result["data"]["findScenes"]["count"]
-            total_pages = math.ceil(max_scenes / variables['filter']['per_page'])
-            print("Getting Stash Scenes Page: "+str(variables['filter']['page'])+" of "+str(total_pages))
-            if (variables['filter']['page'] < total_pages and len(stashScenes)<max_scenes):  #If we're not at the last page or max_scenes, recurse with page +1 
-                variables['filter']['page'] = variables['filter']['page']+1
-                stashScenes = stashScenes+self.findScenes(**variables)
-
-        except:
-            logging.error("Unexpected error getting stash scene:", exc_info=self.debug_mode)
-            
-        return stashScenes  
-        
-    def updateSceneData(self, scene_data):
-        query = """
-    mutation sceneUpdate($input:SceneUpdateInput!) {
-      sceneUpdate(input: $input){
-        title
-      }
-    }
-    """
-
-        variables = {'input': scene_data}
-        result = self.callGraphQL(query, variables)
-
-        if "errors" in result.keys() and len(result["errors"]) > 0:
-            raise Exception ("GraphQL Error when running query. Errors: {}".format(result["errors"])) 
-        
-    def addPerformer(self, performer_data):
-        result = None
-        update_data = performer_data
-        if update_data.get('aliases', None):
-            update_data['aliases'] = ', '.join(update_data['aliases'])
-        
-        query = """
-    mutation performerCreate($input:PerformerCreateInput!) {
-      performerCreate(input: $input){
-        id 
-      }
-    }
-    """
-        variables = {'input': update_data}
-        
-        try:
-            result = self.callGraphQL(query, variables)
-            self.populatePerformers()
-            return result["data"]["performerCreate"]["id"]
-
-        except:
-            logging.error("Error in adding performer", exc_info=self.debug_mode)
-            logging.error(variables)
-            logging.error(result)
-
-    def getPerformerImage(self, url):  #UNTESTED
-        if self.http_auth_type == "basic":
-            return base64.b64encode(requests.get(url,proxies=config.proxies, auth=requests.auth.HTTPBasicAuth(self.username, self.password), 
-                                verify= not self.ignore_ssl_warnings).content)
-        elif self.http_auth_type == "jwt":
-            return base64.b64encode(requests.get(url,proxies=config.proxies, headers=self.headers, cookies={'session':self.auth_token}, verify= not self.ignore_ssl_warnings).content)
-        else:
-            return base64.b64encode(requests.get(url,proxies=config.proxies, verify= not self.ignore_ssl_warnings).content)        
-        
-    def addStudio(self, studio_data):
-        query = """
-        mutation studioCreate($input:StudioCreateInput!) {
-          studioCreate(input: $input){
-            id       
-          }
-        }
-        """
-
-        variables = {'input': studio_data}
-        try:
-            result = self.callGraphQL(query, variables)
-            self.populateStudios()
-            return result["data"]["studioCreate"]["id"]
-        except Exception as e:
-            logging.error("Error in adding studio:", exc_info=self.debug_mode)
-            logging.error(variables)
-
-    def addTag(self, tag_data):
-        query = """
-        mutation tagCreate($input:TagCreateInput!) {
-          tagCreate(input: $input){
-            id       
-          }
-        }
-        """
-        variables = {'input': tag_data}
-
-        try:
-            result = self.callGraphQL(query, variables)
-            self.populateTags()
-            return result["data"]["tagCreate"]["id"]
-        except Exception as e:
-            logging.error("Error in adding tags", exc_info=self.debug_mode)
-            logging.error(variables)
-    
-    def deleteTagByName(self, name):
-        tag_data = {}
-        tag_data['id'] = self.getTagByName(name)
-        if tag_data['id']:
-            return deleteTag(tag_data)
-        return False
-    
-    def deleteTagByID(self, id):
-        tag_data = {}
-        tag_data['id'] = id
-        if tag_data['id']:
-            return deleteTag(tag_data)
-        return False
-
-    def deleteTag(self, input_tag_data):  
-        tag_data = {}
-        tag_data["id"] = input_tag_data["id"]
-        
-        query = """
-        mutation tagDestroy($input:TagDestroyInput!) {
-          tagDestroy(input: $input)
-        }
-        """
-        variables = {'input': tag_data}
-
-        try:
-            result = self.callGraphQL(query, variables)
-            self.populateTags()
-            return result["data"]["tagDestroy"]
-        except Exception as e:
-            logging.error("Error in deleting tag", exc_info=self.debug_mode)
-            logging.error(variables)
-    
-    def deletePerformer(self, input_data):  
-        performer_data = {}
-        performer_data["id"] = input_data["id"]
-        
-        query = """
-        mutation performerDestroy($input:PerformerDestroyInput!) {
-          performerDestroy(input: $input)
-        }
-        """
-        variables = {'input': performer_data}
-
-        try:
-            result = self.callGraphQL(query, variables)
-            self.populateTags()
-            return result["data"]["performerDestroy"]
-        except Exception as e:
-            logging.error("Error in deleting performer", exc_info=self.debug_mode)
-            logging.error(variables)
-    
-    def deleteScene(self, input_data, delete_file = False):  
-        scene_data = {}
-        scene_data["id"] = input_data["id"]
-        scene_data['delete_file']=delete_file
-        scene_data['delete_generated']=True
-        
-        query = """
-        mutation sceneDestroy($input:SceneDestroyInput!) {
-          sceneDestroy(input: $input)
-        }
-        """
-        variables = {'input': scene_data}
-
-        try:
-            result = self.callGraphQL(query, variables)
-            self.populateTags()
-            return result["data"]["sceneDestroy"]
-        except Exception as e:
-            logging.error("Error in deleting scene", exc_info=self.debug_mode)
-            logging.error(variables)
-
-    def updatePerformer(self, performer_data):
-        update_data = performer_data
-        if update_data.get('aliases', None):
-            update_data['aliases'] = ', '.join(update_data['aliases'])
-        if update_data.get('image_path', None):
-            update_data.pop('image_path',None)
-
-        query = """
-    mutation performerUpdate($input:PerformerUpdateInput!) {
-      performerUpdate(input: $input){
-        id
-        name
-        aliases
-        image_path 
-      }
-    }
-    """
-        variables = {'input': update_data}
-        result = self.callGraphQL(query, variables)
-        return result["data"]["performerUpdate"]
-
-    
-    def scrapePerformerFreeones(self, name):
-        query = """   
-        {
-        scrapePerformerList(scraper_id:"builtin_freeones", query:\""""+name+"""\")
-        { name url twitter instagram birthdate ethnicity country eye_color height measurements fake_tits career_length tattoos piercings aliases }
-        }"""
-        result = self.callGraphQL(query)
-        try:
-            if len(result['data']["scrapePerformerList"])!=0:
-                query = """   
-                query ScrapePerformer($scraped_performer: ScrapedPerformerInput!){
-                    scrapePerformer(scraper_id:"builtin_freeones", scraped_performer: $scraped_performer)
-                    { url twitter instagram birthdate ethnicity country eye_color height measurements fake_tits career_length tattoos piercings aliases }
-                }"""
-                variables = {'scraped_performer': result['data']['scrapePerformerList'][0]}
-                result = self.callGraphQL(query, variables)
-                if keyIsSet(result['data'], ['scrapePerformer', 'aliases']):
-                    result["data"]["scrapePerformer"]['aliases'] = [alias.strip() for alias in result["data"]["scrapePerformer"]['aliases'].split(',')]
-                return result["data"]["scrapePerformer"]
-            else:
-                return None
-        except Exception as e:
-            logging.error("Error in scraping Freeones", exc_info=self.debug_mode)
-            logging.error(variables)
-        
-    def __getPerformerByName(self, name, check_aliases = False):  # A private function that allows disabling of checking for aliases
-        
-        for performer in self.performers:
-            if performer['name'].lower() == name: # Check input name against performer name
-                return performer
-            elif check_aliases and keyIsSet(performer, "aliases"):  # Check input name against performer aliases
-                performer_aliases_lower = listToLower(performer["aliases"])
-                if name in performer_aliases_lower:
-                    return performer
-    
-    def getPerformerByName(self, name, aliases = []):
-        name = name.lower()
-        input_aliases_lower = listToLower(aliases)
-        
-        result = self.__getPerformerByName(name, True)
-        if result:  # This matches input name with existing name or alias 
-            return result
-        
-        for input_alias in input_aliases_lower: # For each alias, recurse w/ name = alias, but disable alias to alias mapping
-            result = self.__getPerformerByName(input_alias, False)
-            if result:
-                return result
-        
-        return None            
-
-    def getStudioByName(self, name):
-        for studio in self.studios:
-            if studio['name'].lower().strip() == name.lower().strip():
-                return studio
-        return None
-    
-    def getTagByName(self, name, add_tag_if_missing = False):
-        logging.debug("Getting tag id for tag \'"+name+"\'.")
-        search_name = name.lower().replace('-', ' ').replace('(', '').replace(')', '').strip().replace(' ', '')
-        for tag in self.tags:
-            if search_name == tag['name'].lower().replace('-', ' ').replace('(', '').replace(')', '').strip().replace(' ', ''):
-                logging.debug("Found the tag.  ID is "+tag['id'])
-                return tag
-        
-        # Add the Tag to Stash
-        if add_tag_if_missing:
-            stash_tag = {}
-            stash_tag["name"] = name
-            print("Did not find " + name + " in Stash.  Adding Tag.")
-            self.addTag(stash_tag)
-            return self.getTagByName(name)
-
-        return None
-
-    def createSceneUpdateData(self, scene_data):  #Scene data returned from stash has a different format than what is accepted by the UpdateScene graphQL query.  This converts one format to another
-        scene_update_data = {}
-        if keyIsSet(scene_data, "id"): scene_update_data["id"] = scene_data["id"]
-        if keyIsSet(scene_data, "title"): scene_update_data["title"] = scene_data["title"]
-        if keyIsSet(scene_data, "details"): scene_update_data["details"] = scene_data["details"]
-        if keyIsSet(scene_data, "url"): scene_update_data["url"] = scene_data["url"]
-        if keyIsSet(scene_data, "date"): scene_update_data["date"] = scene_data["date"]
-        if keyIsSet(scene_data, "rating"): scene_update_data["rating"] = scene_data["rating"]
-        if keyIsSet(scene_data, "studio"): scene_update_data["studio_id"] = scene_data["studio"]["id"]
-        if keyIsSet(scene_data, "gallery"): scene_update_data["gallery_id"] = scene_data["gallery"]["id"]
-        if keyIsSet(scene_data, "movies"):
-            scene_update_data["movies"] = []
-            for entry in scene_data["movies"]:
-                update_date_movie = {}
-                update_date_movie["movie_id"]=entry["movie"]["id"]
-                update_date_movie["scene_index"]=entry["scene_index"]
-                scene_update_data["movies"].append(update_date_movie)
-        else:
-            scene_update_data["movies"] = []
-        
-        if keyIsSet(scene_data, "performers"):
-            scene_update_data["performer_ids"] = []
-            for performer in scene_data["performers"]:
-                scene_update_data["performer_ids"].append(performer["id"])
-        else:
-            scene_update_data["performer_ids"] = []
-        if keyIsSet(scene_data, "tags"):
-            scene_update_data["tag_ids"] = []
-            for tag in scene_data["tags"]:
-                scene_update_data["tag_ids"].append(tag["id"])
-        else:
-            scene_update_data["tag_ids"] = []
-        return scene_update_data
-              
+     
 #Script-specific functions        
 def createStashPerformerData(tpbd_performer): #Creates stash-compliant data from raw data provided by ThePornDB
     stash_performer = {}
@@ -631,10 +106,16 @@ def createStashStudioData(tpbd_studio):  # Creates stash-compliant data from raw
 
 def getJpegImage(image_url):
     try:
+        
         r = requests.get(image_url, stream=True,proxies=config.proxies)
         r.raw.decode_content = True # handle spurious Content-Encoding
         image = Image.open(r.raw)
         if image.format:
+            if image.mode in ('RGBA', 'LA'):
+                fill_color = 'black'  # your background
+                background = Image.new(image.mode[:-1], image.size, fill_color)
+                background.paste(image, image.split()[-1])
+                image = background
             buffered = BytesIO()
             image.save(buffered, format="JPEG")
             image = buffered.getvalue()
@@ -716,13 +197,26 @@ def getPerformer(name):
             logging.error("ThePornDB seems to be down.  Exiting.")
             sys.exit()
            
+def sceneHashQuery(oshash): # Scrapes ThePornDB based on oshash.  Returns an array of scenes as results, or None
+    global tpbd_error_count
+    url = "https://metadataapi.net/api/scenes?hash="+urllib.parse.quote(oshash)    
+    try:
+        result = requests.get(url,proxies=config.proxies).json()["data"]
+        tpbd_error_count = 0
+        return result
+    except ValueError:
+        logging.error("Error communicating with ThePornDB")        
+        tpbd_error_count = tpbd_error_count + 1
+        if tpbd_error_count > 3:
+            logging.error("ThePornDB seems to be down.  Exiting.")
+            sys.exit()
 
 def sceneQuery(query, parse_function = True):  # Scrapes ThePornDB based on query.  Returns an array of scenes as results, or None
     global tpbd_error_count
     if parse_function:
-        url = "https://metadataapi.net/api/scenes?parse="+urllib.parse.quote(query)    
+        url = "https://api.metadataapi.net/api/scenes?parse="+urllib.parse.quote(query)    
     else:
-        url = "https://metadataapi.net/api/scenes?q="+urllib.parse.quote(query)
+        url = "https://api.metadataapi.net/api/scenes?q="+urllib.parse.quote(query)
     try:
         result = requests.get(url,proxies=config.proxies).json()["data"]
         tpbd_error_count = 0
@@ -837,9 +331,12 @@ def scrapeScene(scene):
     try:
         scene_data = my_stash.createSceneUpdateData(scene)  # Start with our current data as a template
         scrape_query = ""
-        scrape_query = getQuery(scene)
-        scraped_data = sceneQuery(scrape_query)
-
+        scraped_data = None
+        #if config.use_oshash and scene['oshash']: 
+        #    scraped_data = sceneHashQuery(scene['oshash'])
+        if not scraped_data:
+            scrape_query = getQuery(scene)
+            scraped_data = sceneQuery(scrape_query)
         if not scraped_data:
             scraped_data = sceneQuery(scrape_query, False)
 
@@ -889,6 +386,8 @@ def scrapeScene(scene):
             updateSceneFromScrape(scene_data, scraped_scene, scene['path'])
             print("Success")
         else:
+            scene_data["tag_ids"].append(my_stash.getTagByName(config.unmatched_tag)['id'])
+            my_stash.updateSceneData(scene_data)
             print("No data found for: [{}]".format(scrape_query))
     except Exception as e:
         logging.error("Exception encountered when scraping '"+scrape_query, exc_info=config.debug_mode)
@@ -950,8 +449,12 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
             ambiguous_tag_id = my_stash.getTagByName(config.ambiguous_tag)['id']
             if ambiguous_tag_id in scene_data["tag_ids"]: 
                 scene_data["tag_ids"].remove(ambiguous_tag_id) #Remove ambiguous tag; it will be readded later if the scene is still ambiguous
+        if config.unmatched_tag: 
+            unmatched_tag_id = my_stash.getTagByName(config.unmatched_tag)['id']
+            if unmatched_tag_id in scene_data["tag_ids"]: 
+                scene_data["tag_ids"].remove(unmatched_tag_id) #Remove unmatched tag
         if my_stash.getTagByName(config.unconfirmed_alias)["id"] in scene_data["tag_ids"]: 
-            scene_data["tag_ids"].remove(my_stash.getTagByName(config.unconfirmed_alias)["id"]) #Remove ambiguous tag; it will be readded later if the scene is still ambiguous
+            scene_data["tag_ids"].remove(my_stash.getTagByName(config.unconfirmed_alias)["id"]) #Remove unconfirmed alias tag; it will be readded later if needed
 
         if config.set_details: scene_data["details"] = scraped_scene["description"] #Add details
         if config.set_date: scene_data["date"] = scraped_scene["date"]  #Add date
@@ -1009,7 +512,7 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
                 add_this_performer = False
                 if stash_performer:  
                     performer_id = stash_performer["id"] #If performer already exists, use that
-                    performer_names.append(performer_name)  #Add to list of performers in scene
+                    if config.male_performers_in_title or not not_female: performer_names.append(performer_name)  #Add to list of performers in scene
                 elif keyIsSet(scraped_performer, ['parent','name']): #If site name does not match someone in Stash and TPBD has a linked parent
                     if  (  #Test for when we should automatically accept the parent name
                         areAliases(scraped_performer['name'], scraped_performer['parent']['name'], scraped_scene['site']['name'].replace(' ','') if config.compact_studio_names else scraped_scene['site']['name']) or #Parent performer seems to be a valid alias to site performer
@@ -1020,7 +523,7 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
                         stash_performer = my_stash.getPerformerByName(performer_name) 
                         if stash_performer:  
                             performer_id = stash_performer["id"] #If performer already exists, use that
-                            performer_names.append(performer_name)  #Add to list of performers in scene
+                            if config.male_performers_in_title or not not_female: performer_names.append(performer_name)  #Add to list of performers in scene
                         else:
                             add_this_performer = True
                     else: #We can't automatically trust the parent name.  Ask for manual confirmation if flag is set.
@@ -1031,7 +534,7 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
                                 stash_performer = my_stash.getPerformerByName(performer_name) 
                                 if stash_performer:  
                                     performer_id = stash_performer["id"] #If performer already exists, use that
-                                    performer_names.append(performer_name)  #Add to list of performers in scene
+                                    if config.male_performers_in_title or not not_female: performer_names.append(performer_name)  #Add to list of performers in scene
                                     stash_performer.update(createStashPerformerData(confirmed_performer))
                                     my_stash.updatePerformer(stash_performer) ##Update the performer to capture new aliases if needed
                                 else:
@@ -1059,7 +562,7 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
                 if add_this_performer and config.add_performers:
                     print("Did not find " + performer_name + " in Stash.  Adding performer.")
                     performer_id = addPerformer(scraped_performer)
-                    performer_names.append(performer_name)
+                    if config.male_performers_in_title or not not_female: performer_names.append(performer_name)
 
                 if performer_id:  # If we have a valid ID, add performer to Scene
                     scraped_performer_ids.append(performer_id)
@@ -1112,12 +615,15 @@ class config_class:
     server_port = "<PORT>"
     username=""
     password=""
+    ignore_ssl_warnings= True # Set to True if your Stash uses SSL w/ a self-signed cert
 
-    scrape_tag= "scraped_from_theporndb"  #Tag to be added to scraped scenes.  Set to None to disable
+    scrape_tag= "Scraped From ThePornDB"  #Tag to be added to scraped scenes.  Set to None to disable
+    unmatched_tag = "Missing From ThePornDB" #Tag to be added to scenes that aren't matched at TPDB.  Set to None to disable.
     disambiguate_only = False # Set to True to run script only on scenes tagged due to ambiguous scraping. Useful for doing manual disambgiuation.  Must set ambiguous_tag for this to work
-    verify_aliases_only = False # Set to True to scrape only scenes that were skipped due to unconfirmed aliases 
+    verify_aliases_only = False # Set to True to scrape only scenes that were skipped due to unconfirmed aliases - set confirm_questionable_aliases to True before using
     rescrape_scenes= False # If False, script will not rescrape scenes previously scraped successfully.  Must set scrape_tag for this to work
-    debug_mode = True
+    retry_unmatched = False # If False, script will not rescrape scenes previously unmatched.  Must set unmatched_tag for this to work
+    debug_mode = False
 
     #Set what fields we scrape
     set_details = True
@@ -1126,35 +632,36 @@ class config_class:
     set_performers = True
     set_studio = True
     set_tags = True
-    set_title = True 
+    set_title = True
     set_url = True
 
     #Set what content we add to Stash, if found in ThePornDB but not in Stash
-    add_studio = False  
-    add_tags = False  # Script will still add scrape_tag and ambiguous_tag, if set
-    add_performers = False 
+    add_studio = True  
+    add_tags = False  # Script will still add scrape_tag and ambiguous_tag, if set.  Will also tag ambiguous performers if set to True.
+    add_performers = True 
 
     #Disambiguation options
-    #The script tries to disambiguate using title, studio, and date (or just filename if parse_with_filename is true).  If this combo still returns more than one result, these options are used.  Set both to False to skip scenes with ambiguous results
+    #The script tries to disambiguate using title, studio, and date (or just filename if parse_with_filename is True).  If this combo still returns more than one result, these options are used.  Set both to False to skip scenes with ambiguous results
     auto_disambiguate = False  #Set to True to try to pick the top result from ThePornDB automatically.  Will not set ambiguous_tag
     manual_disambiguate = False #Set to True to prompt for a selection.  (Overwritten by auto_disambiguate)
-    ambiguous_tag = "theporndb_ambiguous" #Tag to be added to scenes we skip due to ambiguous scraping.  Set to None to disable
+    ambiguous_tag = "ThePornDB Ambiguous" #Tag to be added to scenes we skip due to ambiguous scraping.  Set to None to disable
+    #Disambiguation options for when a specific performer can't be verified
     tag_ambiguous_performers = True  # If True, will tag ambiguous performers (performers listed on ThePornDB only for a single site, not across sites)
-    trust_tpbd_aliases = True #If true, when TPBD lists an alias that we can't verify, just trust TBPD to be correct.  May lead to incorrect tagging
-    confirm_questionable_aliases = True #If True, when TPBD lists an alias that we can't verify, manually prompt for config
+    confirm_questionable_aliases = True #If True, when TPBD lists an alias that we can't verify, manually prompt for config.  Otherwise they are tagged for later reprocessing
+    trust_tpbd_aliases = True #If True, when TPBD lists an alias that we can't verify, just trust TBPD to be correct.  May lead to incorrect tagging
 
     #Other config options
-    parse_with_filename = True # If true, will query ThePornDB based on file name, rather than title, studio, and date
+    parse_with_filename = True # If True, will query ThePornDB based on file name, rather than title, studio, and date
     dirs_in_query = 0 # The number of directories up the path to be included in the query for a filename parse query.  For example, if the file  is at \performer\mysite\video.mp4 and dirs_in_query is 1, query would be "mysite video."  If set to two, query would be "performer mysite video", etc.
-    only_add_female_performers = True  #If true, only female performers are added (note, exception is made if performer name is already in title and name is found on ThePornDB)
-    scrape_performers_freeones = False #If true, will try to scrape newly added performers with the freeones scraper
-    get_images_babepedia = False #If true, will try to grab an image from babepedia before the one from ThePornDB
-    include_performers_in_title = True #If true, performers will be prepended to the title
-    clean_filename = True #If true, will try to clean up filenames before attempting scrape. Probably unnecessary, as ThePornDB already does this
-    compact_studio_names = False # If true, this will remove spaces from studio names added from ThePornDB
-    ignore_ssl_warnings = False # Set to true if your Stash uses SSL w/ a self-signed cert
-    trust_tpbd_aliases = False #Trust TPBDs aliases without double checking
+    only_add_female_performers = True  #If True, only female performers are added (note, exception is made if performer name is already in title and name is found on ThePornDB)
+    scrape_performers_freeones = True #If True, will try to scrape newly added performers with the freeones scraper
+    get_images_babepedia = True #If True, will try to grab an image from babepedia before the one from ThePornDB
+    include_performers_in_title = True #If True, performers will be added at the beggining of the title
+    male_performers_in_title = False # If True, male performers and included in the title
+    clean_filename = True #If True, will try to clean up filenames before attempting scrape. Often unnecessary, as ThePornDB already does this
+    compact_studio_names = True # If True, this will remove spaces from studio names added from ThePornDB
     proxies={} # Leave empty or specify proxy like this: {'http':'http://user:pass@10.10.10.10:8000','https':'https://user:pass@10.10.10.10:8000'}
+    #use_oshash = False # Set to True to use oshash values to query NOT YET SUPPORTED
 
     def loadConfig(self):
         try:  # Try to load configuration.py values
@@ -1165,7 +672,7 @@ class config_class:
                 if (key == "server_ip" or key == "server_port") and ("<" in value or ">" in value):
                     logging.warning("Please remove '<' and '>' from your server_ip and server_port lines in configuration.py")
                     sys.exit()
-                if isinstance(value, type(vars(config_class).get(key, None))):
+                if value is None or isinstance(value, type(vars(config_class).get(key, None))):
                     vars(self)[key]=value
                 else:
                     logging.warning("Invalid configuration parameter: "+key, exc_info=config_class.debug_mode)
@@ -1200,11 +707,15 @@ server_ip= "{0}"
 server_port = "{1}"
 username="{2}"
 password="{3}"
+ignore_ssl_warnings= True # Set to True if your Stash uses SSL w/ a self-signed cert
 
 # Configuration options
-scrape_tag= "scraped_from_theporndb"  #Tag to be added to scraped scenes.  Set to None to disable
+scrape_tag= "Scraped From ThePornDB"  #Tag to be added to scraped scenes.  Set to None to disable
+unmatched_tag = "Missing From ThePornDB" #Tag to be added to scenes that aren't matched at TPDB.  Set to None to disable.
 disambiguate_only = False # Set to True to run script only on scenes tagged due to ambiguous scraping. Useful for doing manual disambgiuation.  Must set ambiguous_tag for this to work
+verify_aliases_only = False # Set to True to scrape only scenes that were skipped due to unconfirmed aliases - set confirm_questionable_aliases to True before using
 rescrape_scenes= False # If False, script will not rescrape scenes previously scraped successfully.  Must set scrape_tag for this to work
+retry_unmatched = False # If False, script will not rescrape scenes previously unmatched.  Must set unmatched_tag for this to work
 debug_mode = False
 
 #Set what fields we scrape
@@ -1214,40 +725,42 @@ set_cover_image = True
 set_performers = True
 set_studio = True
 set_tags = True
-set_title = True 
+set_title = True
 set_url = True
 
 #Set what content we add to Stash, if found in ThePornDB but not in Stash
-add_studio = False  
-add_tags = False  # Script will still add scrape_tag and ambiguous_tag, if set
-add_performers = False 
+add_studio = True  
+add_tags = False  # Script will still add scrape_tag and ambiguous_tag, if set.  Will also tag ambiguous performers if set to True.
+add_performers = True 
 
 #Disambiguation options
-#The script tries to disambiguate using title, studio, and date (or just filename if parse_with_filename is true).  If this combo still returns more than one result, these options are used.  Set both to False to skip scenes with ambiguous results
+#The script tries to disambiguate using title, studio, and date (or just filename if parse_with_filename is True).  If this combo still returns more than one result, these options are used.  Set both to False to skip scenes with ambiguous results
 auto_disambiguate = False  #Set to True to try to pick the top result from ThePornDB automatically.  Will not set ambiguous_tag
 manual_disambiguate = False #Set to True to prompt for a selection.  (Overwritten by auto_disambiguate)
-ambiguous_tag = "theporndb_ambiguous" #Tag to be added to scenes we skip due to ambiguous scraping.  Set to None to disable
-trust_tpbd_aliases = True #If True, when TPBD lists an alias that we can't verify, just trust TBPD to be correct.  May lead to incorrect tagging
+ambiguous_tag = "ThePornDB Ambiguous" #Tag to be added to scenes we skip due to ambiguous scraping.  Set to None to disable
+#Disambiguation options for when a specific performer can't be verified
 tag_ambiguous_performers = True  # If True, will tag ambiguous performers (performers listed on ThePornDB only for a single site, not across sites)
+confirm_questionable_aliases = True #If True, when TPBD lists an alias that we can't verify, manually prompt for config.  Otherwise they are tagged for later reprocessing
+trust_tpbd_aliases = True #If True, when TPBD lists an alias that we can't verify, just trust TBPD to be correct.  May lead to incorrect tagging
 
 #Other config options
 parse_with_filename = True # If True, will query ThePornDB based on file name, rather than title, studio, and date
 dirs_in_query = 0 # The number of directories up the path to be included in the query for a filename parse query.  For example, if the file  is at \performer\mysite\video.mp4 and dirs_in_query is 1, query would be "mysite video."  If set to two, query would be "performer mysite video", etc.
 only_add_female_performers = True  #If True, only female performers are added (note, exception is made if performer name is already in title and name is found on ThePornDB)
-scrape_performers_freeones = False #If True, will try to scrape newly added performers with the freeones scraper
-get_images_babepedia = False #If True, will try to grab an image from babepedia before the one from ThePornDB
-include_performers_in_title = True #If true, performers will be added to the beginning of the title
-clean_filename = True #If True, will try to clean up filenames before attempting scrape. Probably unnecessary, as ThePornDB already does this
-compact_studio_names = False # If True, this will remove spaces from studio names added from ThePornDB
-ignore_ssl_warnings=True # Set to True if your Stash uses SSL w/ a self-signed cert
-trust_tpbd_aliases = False #Trust TPBDs aliases without double checking
+scrape_performers_freeones = True #If True, will try to scrape newly added performers with the freeones scraper
+get_images_babepedia = True #If True, will try to grab an image from babepedia before the one from ThePornDB
+include_performers_in_title = True #If True, performers will be added at the beggining of the title
+male_performers_in_title = False # If True, male performers and included in the title
+clean_filename = True #If True, will try to clean up filenames before attempting scrape. Often unnecessary, as ThePornDB already does this
+compact_studio_names = True # If True, this will remove spaces from studio names added from ThePornDB
 proxies={} # Leave empty or specify proxy like this: {'http':'http://user:pass@10.10.10.10:8000','https':'https://user:pass@10.10.10.10:8000'}
+# use_oshash = False # Set to True to use oshash values to query NOT YET SUPPORTED
 """.format(server_ip, server_port, username, password, use_https))
         f.close()
         print("Configuration file created.  All values are currently at defaults.  It is highly recommended that you edit the configuration.py to your liking.  Otherwise, just re-run the script to use the defaults.")
         sys.exit()
 
-def parseArgs():
+def parseArgs(args):
     my_parser = argparse.ArgumentParser(description='Scrape Stash Scenes from ThePornDB')
 
     # Add the arguments
@@ -1269,6 +782,18 @@ def parseArgs():
                        '--no_rescrape',
                        action='store_true',
                        help='do not rescrape already scraped scenes')
+    my_parser.add_argument('-ru',
+                       '--retry_unmatched',
+                       action='store_true',
+                       help='retry previously unmatched scenes')
+    my_parser.add_argument('-ruo',
+                       '--retry_unmatched_only',
+                       action='store_true',
+                       help='only retry previously unmatched scenes')
+    my_parser.add_argument('-no',
+                       '--new_only',
+                       action='store_true',
+                       help='only scan previously unscanned scenes')
     my_parser.add_argument('-ao',
                        '--verify_aliases_only',
                        action='store_true',
@@ -1290,6 +815,13 @@ def parseArgs():
                        default=[],
                        action='append',
                        help='only match scenes with these tags; repeat once for each required tag')
+    my_parser.add_argument('-nt',
+                       '--not_tags',
+                       metavar='not_tags',
+                       type=str,
+                       default=[],
+                       action='append',
+                       help='do not match scenes with these tags; repeat once for each excluded tag')
     my_parser.add_argument('-md',
                        '--man_disambiguate',
                        action='store_true',
@@ -1304,31 +836,40 @@ def parseArgs():
                        help='prompt to manually confirm an alias when automatic verification fails')
   
     # Execute the parse_args() method to collect our args
-    args = my_parser.parse_args()
+    parsed_args = my_parser.parse_args(args)
     #Set variables accordingly
     global config
     global max_scenes
     global required_tags
-    if args.debug: config.debug_mode = True
-    if args.rescrape: config.rescrape_scenes = True
-    if args.no_rescrape: config.rescrape_scenes = False
-    if args.disambiguate_only: 
+    global excluded_tags
+    if parsed_args.debug: config.debug_mode = True
+    if parsed_args.rescrape: config.rescrape_scenes = True
+    if parsed_args.retry_unmatched: config.retry_unmatched = True
+    if parsed_args.retry_unmatched_only: 
+        config.retry_unmatched = True
+        required_tags.append(config.unmatched_tag)
+    if parsed_args.new_only: 
+        config.retry_unmatched = False
+        excluded_tags.append(config.ambiguous_tag)
+    if parsed_args.no_rescrape: config.rescrape_scenes = False
+    if parsed_args.disambiguate_only: 
         config.disambiguate_only = True
         config.manual_disambiguate = True
-    if args.man_disambiguate:
+    if parsed_args.man_disambiguate:
         config.manual_disambiguate = True
-    if args.auto_disambiguate:
+    if parsed_args.auto_disambiguate:
         config.auto_disambiguate = True
-    if args.man_verify_aliases:
+    if parsed_args.man_verify_aliases:
         config.manConfirmAlias = True
-    if args.verify_aliases_only: 
+    if parsed_args.verify_aliases_only: 
         config.verify_aliases_only = True
         config.manConfirmAlias = True
-    if args.max_scenes: max_scenes = args.max_scenes
-    for tag in args.tags:
+    if parsed_args.max_scenes: max_scenes = parsed_args.max_scenes
+    for tag in parsed_args.tags:
         required_tags.append(tag)
-
-    return args.query
+    for tag in parsed_args.not_tags:
+        excluded_tags.append(tag)
+    return parsed_args.query
 
 #Globals
 tpbd_error_count = 0
@@ -1336,25 +877,28 @@ my_stash = None
 ENCODING = 'utf-8'
 known_aliases = {}
 required_tags = []
+excluded_tags = []
 max_scenes = 0
 config = config_class()
 
-def main():
+def main(args):
     logging.basicConfig(level=logging.DEBUG)
     try:
         global my_stash
         global max_scenes
         global required_tags
+        global excluded_tags
         global config
         global tpbd_error_count
         tpbd_error_count = 0
         config.loadConfig()
         scenes = None
         
-        if len(parseArgs()) == 1:
-            query = "\""+parseArgs()[0]+"\""
+        query_args = parseArgs(args)
+        if len(query_args) == 1:
+            query = "\""+query_args[0]+"\""
         else:
-            query = ' '.join(parseArgs())
+            query = ' '.join(query_args)
 
         if not config.debug_mode: logging.getLogger().setLevel("WARNING")
 
@@ -1363,10 +907,13 @@ def main():
         else:
             server = 'http://'+str(config.server_ip)+':'+str(config.server_port)
         
-        my_stash = stash_interface(server, config.username, config.password, config.ignore_ssl_warnings)
+        my_stash = StashInterface.stash_interface(server, config.username, config.password, config.ignore_ssl_warnings)
+
+        if len(config.proxies)>0: my_stash.setProxies(config.proxies)
 
         if config.ambiguous_tag: my_stash.getTagByName(config.ambiguous_tag, True)
         if config.scrape_tag: scrape_tag_id = my_stash.getTagByName(config.scrape_tag, True)["id"]
+        if config.unmatched_tag: unmatched_tag_id = my_stash.getTagByName(config.unmatched_tag, True)["id"]
         config.unconfirmed_alias = my_stash.getTagByName("ThePornDB Unconfirmed Alias", True)["name"]
          
         findScenes_params = {}
@@ -1378,9 +925,16 @@ def main():
             required_tags.append(config.ambiguous_tag)
         if config.verify_aliases_only: #If only disambiguating aliases
             required_tags.append(config.unconfirmed_alias)
-        
+        if not config.retry_unmatched: #If not retrying unmatched scenes
+            excluded_tags.append(config.unmatched_tag)
+        if not config.rescrape_scenes: #If only scraping unscraped scenes
+            excluded_tags.append(config.scrape_tag)
+
+        my_stash.waitForIdle() #Wait for Stash to idle before scraping
+
         #Set our filter to require any required_tags
         if len(required_tags)>0:
+            findScenes_params_incl = copy.deepcopy(findScenes_params)
             required_tag_ids = []
             for tag_name in required_tags:
                 tag = my_stash.getTagByName(tag_name, False)
@@ -1388,19 +942,30 @@ def main():
                     required_tag_ids.append(tag["id"])
                 else:
                     logging.error("Did not find tag in Stash: "+tag_name, exc_info=config.debug_mode)
-            findScenes_params['scene_filter'] =  {'tags': { 'modifier':'INCLUDES', 'value': [*required_tag_ids]}}
-            scenes_with_tags = my_stash.findScenes(**findScenes_params)
+            findScenes_params_incl['scene_filter'] =  {'tags': { 'modifier':'INCLUDES', 'value': [*required_tag_ids]}}
+            if len(excluded_tags)>0: print("Getting Scenes With Required Tags")
+            scenes_with_tags = my_stash.findScenes(**findScenes_params_incl)
             scenes = scenes_with_tags
 
-        if not config.rescrape_scenes: #If only scraping unscraped scenes
-            findScenes_params['scene_filter'] =  {'tags': { 'modifier':'EXCLUDES', 'value': [scrape_tag_id]}}
-            scenes_without_tags = scenes = my_stash.findScenes(**findScenes_params)
+        #Set our filter to exclude any excluded_tags
+        if len(excluded_tags)>0:
+            findScenes_params_excl = copy.deepcopy(findScenes_params)
+            excluded_tag_ids = []
+            for tag_name in excluded_tags:
+                tag = my_stash.getTagByName(tag_name, False)
+                if tag:
+                    excluded_tag_ids.append(tag["id"])
+                else:
+                    logging.error("Did not find tag in Stash: "+tag_name, exc_info=config.debug_mode)
+            findScenes_params_excl['scene_filter'] =  {'tags': { 'modifier':'EXCLUDES', 'value': [*excluded_tag_ids]}}
+            if len(required_tags)>0: print("Getting Scenes Without Excluded Tags")
+            scenes_without_tags = my_stash.findScenes(**findScenes_params_excl)
             scenes = scenes_without_tags
         
-        if config.rescrape_scenes and len(required_tags)==0:  #If no tags are required or excluded
+        if len(excluded_tags)==0 and len(required_tags)==0:  #If no tags are required or excluded
             scenes = my_stash.findScenes(**findScenes_params)
         
-        if len(required_tags)>0 and not config.rescrape_scenes:
+        if len(required_tags)>0 and len(excluded_tags)>0:
             scenes = [scene for scene in scenes_with_tags if scene in scenes_without_tags] #Scenes that exist in both
 
         for scene in scenes:
@@ -1416,4 +981,4 @@ def main():
         """, exc_info=config.debug_mode)
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])
