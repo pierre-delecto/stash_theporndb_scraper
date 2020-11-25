@@ -168,11 +168,13 @@ class stash_interface:
         result = self.callGraphQL(query)
         return result["data"]["jobStatus"]
 
-    def scan(self, useFileMetadata = False): 
-        if useFileMetadata:
-            variables = {'input': {'useFileMetadata': True}}
-        else:
-            variables = {'input': {'useFileMetadata': False}}
+    def scan(self, variables = {'input': { 
+                'useFileMetadata': False,
+                'scanGeneratePreviews': False,
+                'scanGenerateImagePreviews': False,
+                'scanGenerateSprites': False,
+                'paths': []
+                }}): 
         query = """
         mutation metadataScan($input:ScanMetadataInput!) {
             metadataScan(input: $input)
@@ -197,8 +199,7 @@ class stash_interface:
                 'previews': True,
                 'imagePreviews': False,
                 'markers': True,
-                'transcodes': False,
-                'thumbnails': False
+                'transcodes': False
                 }}
         
         query = """
@@ -730,6 +731,27 @@ def parseArgs(args):
                        '--scan',
                        action='store_true',
                        help='scan for new content')
+    my_parser.add_argument('-ufm',
+                        '--useFileMetadata',
+                        action='store_true',
+                        help='use file metadata during a scan')
+    my_parser.add_argument('-sgp',
+                        '--scanGeneratePreviews',
+                        action='store_true',
+                        help='generate previews during a scan')
+    my_parser.add_argument('-sgi',
+                        '--scanGenerateImagePreviews',
+                        action='store_true',
+                        help='generate image previews during a scan')
+    my_parser.add_argument('-sgs',
+                        '--scanGenerateSprites',
+                        action='store_true',
+                        help='generate sprites during a scan')
+    my_parser.add_argument('-p',
+                       '--path',
+                       nargs='+',
+                       action='store',
+                       help='path for scans')
     my_parser.add_argument('-c',
                        '--clean',
                        action='store_true',
@@ -774,10 +796,27 @@ def main(args):
             server = 'http://'+str(config.server_ip)+':'+str(config.server_port)
         
         my_stash = stash_interface(server, config.username, config.password, config.ignore_ssl_warnings)
-        if args.scan: 
-            print("Scanning...")
-            my_stash.waitForIdle()
-            my_stash.scan()
+        if args.scan:
+            variables = {'input': { 
+                'useFileMetadata': False,
+                'scanGeneratePreviews': False,
+                'scanGenerateImagePreviews': False,
+                'scanGenerateSprites': False,
+                'paths': []
+                }}
+            if args.useFileMetadata: variables['input']['useFileMetadata'] = True 
+            if args.scanGeneratePreviews: variables['input']['scanGeneratePreviews'] = True
+            if args.scanGenerateImagePreviews: variables['input']['scanGenerateImagePreviews'] = True 
+            if args.scanGenerateSprites: variables['input']['scanGenerateSprites'] = True 
+            if args.path:
+                print("Scanning {}".format(','.join(args.path)))
+                variables['input']['paths'] = args.path
+                my_stash.waitForIdle()
+                my_stash.scan(variables=variables)
+            else:
+                print("Scanning...")
+                my_stash.waitForIdle()
+                my_stash.scan(variables=variables)
         if args.generate: 
             print("Generating...")
             my_stash.waitForIdle()
