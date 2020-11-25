@@ -573,13 +573,11 @@ def updateSceneFromScrape(scene_data, scraped_scene, path = ""):
             title_prefix = ""
             if config.include_performers_in_title:
                 if len(performer_names) > 2:
-                    title_prefix = "{}, and {} ".format(", ".join(performer_names[:-1]), performer_names[-1])
+                    title_prefix = "{}, and {} - ".format(", ".join(performer_names[:-1]), performer_names[-1])
                 elif len(performer_names) == 2:
-                    title_prefix = performer_names[0] + " and " + performer_names[1] + " "
+                    title_prefix = performer_names[0] + " and " + performer_names[1] + " - "
                 elif len(performer_names) == 1:
-                    title_prefix = performer_names[0] + " "
-                for name in performer_names:
-                    scraped_scene["title"] = lreplace(name, '', scraped_scene["title"]).strip()
+                    title_prefix = performer_names[0] + " - "
             scene_data["title"] = str(title_prefix + scraped_scene["title"]).strip()
 
         #Set tag_ids for tags_to_add           
