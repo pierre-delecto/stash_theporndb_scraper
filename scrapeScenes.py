@@ -623,6 +623,7 @@ class config_class:
     verify_aliases_only = False # Set to True to scrape only scenes that were skipped due to unconfirmed aliases - set confirm_questionable_aliases to True before using
     rescrape_scenes= False # If False, script will not rescrape scenes previously scraped successfully.  Must set scrape_tag for this to work
     retry_unmatched = False # If False, script will not rescrape scenes previously unmatched.  Must set unmatched_tag for this to work
+    missing_stashbox_only = False # If True, script will scrape scenes missing an existing stash(box)_id only
     debug_mode = False
 
     #Set what fields we scrape
@@ -932,6 +933,10 @@ def main(args):
 
         my_stash.waitForIdle() #Wait for Stash to idle before scraping
 
+        #Set filter to only include scenes missing a stash_id
+        if config.missing_stashbox_only:
+            findScenes_params['scene_filter'] = {'is_missing': 'stash_id' }
+
         #Set our filter to require any required_tags
         if len(required_tags)>0:
             findScenes_params_incl = copy.deepcopy(findScenes_params)
@@ -942,7 +947,7 @@ def main(args):
                     required_tag_ids.append(tag["id"])
                 else:
                     logging.error("Did not find tag in Stash: "+tag_name, exc_info=config.debug_mode)
-            findScenes_params_incl['scene_filter'] =  {'tags': { 'modifier':'INCLUDES', 'value': [*required_tag_ids]}}
+            findScenes_params_incl['scene_filter']['tags'] = { 'modifier':'INCLUDES', 'value': [*required_tag_ids]}
             if len(excluded_tags)>0: print("Getting Scenes With Required Tags")
             scenes_with_tags = my_stash.findScenes(**findScenes_params_incl)
             scenes = scenes_with_tags
@@ -957,7 +962,7 @@ def main(args):
                     excluded_tag_ids.append(tag["id"])
                 else:
                     logging.error("Did not find tag in Stash: "+tag_name, exc_info=config.debug_mode)
-            findScenes_params_excl['scene_filter'] =  {'tags': { 'modifier':'EXCLUDES', 'value': [*excluded_tag_ids]}}
+            findScenes_params_excl['scene_filter']['tags'] = { 'modifier':'EXCLUDES', 'value': [*excluded_tag_ids]}
             if len(required_tags)>0: print("Getting Scenes Without Excluded Tags")
             scenes_without_tags = my_stash.findScenes(**findScenes_params_excl)
             scenes = scenes_without_tags
