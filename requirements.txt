@@ -1,6 +1,6 @@
 certifi==2019.11.28
 chardet==3.0.4
 idna==2.9
-Pillow==7.0.0
+Pillow==9.0.0
 requests==2.23.0
 urllib3==1.25.8
